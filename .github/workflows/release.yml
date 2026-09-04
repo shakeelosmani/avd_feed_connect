@@ -1,0 +1,59 @@
+name: Build & Release Flatpak
+
+# Build the single-file .flatpak bundle in a clean Flathub build container and,
+# on a version tag, publish it as a GitHub Release asset.
+#   - push a tag  vX.Y.Z   -> builds + creates/updates the release with the bundle
+#   - manual "Run workflow" -> builds only, bundle uploaded as a run artifact
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the release
+
+jobs:
+  flatpak:
+    name: Build bundle
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the app module to the exact commit being built, so the released
+      # bundle always matches this ref (the committed manifest stays pinned to a
+      # release commit for Flathub reproducibility).
+      - name: Pin app module to this commit
+        run: |
+          set -eu
+          m=io.github.shakeelosmani.avd_feed_connect.yml
+          awk -v sha="$GITHUB_SHA" '
+            /avd_feed_connect\.git/ { print; getline; sub(/commit:.*/, "commit: " sha); print; next }
+            { print }
+          ' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
+          echo "app module pinned to $GITHUB_SHA"
+
+      - name: Build Flatpak bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: avd_feed_connect.flatpak
+          manifest-path: io.github.shakeelosmani.avd_feed_connect.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: avd_feed_connect.flatpak
+          generate_release_notes: true
+          body: |
+            Single-file Flatpak bundle of AVD Feed + Connect (Linux).
+
+            Install (needs Flatpak + the Flathub remote for the GNOME 49 runtime):
+
+                flatpak install --user avd_feed_connect.flatpak
+                flatpak run io.github.shakeelosmani.avd_feed_connect
+
+            Bundles a hardened FreeRDP (pulse hot-unplug fixes + camera redirection).
