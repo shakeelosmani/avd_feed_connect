@@ -1,10 +1,24 @@
-# AVD Feed + Connect (Linux)
+<p align="center">
+  <img src="assets/logo.png" width="120" alt="AVD Feed + Connect logo">
+</p>
 
-A native Linux client for **Azure Virtual Desktop** and **Windows 365**. Sign in
-with your work account, see the desktops and remote apps you're entitled to —
-just like Microsoft's Windows App on Windows/macOS — and connect over RDP.
+<h1 align="center">AVD Feed + Connect (Linux)</h1>
+
+<p align="center">
+A native Linux client for <b>Azure Virtual Desktop</b> and <b>Windows 365</b> —
+sign in, see the desktops and remote apps you're entitled to (just like
+Microsoft's Windows App), and connect over RDP.
+</p>
 
 > Unofficial. Not affiliated with or endorsed by Microsoft.
+
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/workspaces.png" width="720" alt="Workspace grid">
+  <br>
+  <em>Your Azure Virtual Desktop workspaces, discovered automatically after sign-in.</em>
+</p>
 
 ## Why
 
