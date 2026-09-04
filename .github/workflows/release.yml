@@ -45,13 +45,24 @@ jobs:
       - name: Build (signed)
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: avd_feed_connect.flatpak
           manifest-path: io.github.shakeelosmani.avd_feed_connect.yml
           cache-key: flatpak-builder-${{ github.sha }}
           gpg-sign: ${{ secrets.FLATPAK_GPG_KEYID }}
 
       - name: Re-sign repo summary
         run: flatpak build-update-repo repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}"
+
+      # Build the bundle ourselves so it embeds the Pages repo URL + signing key
+      # → installs from the bundle are ALSO updatable via `flatpak update`.
+      - name: Make updatable, signed bundle
+        run: |
+          set -eu
+          gpg --export "${{ secrets.FLATPAK_GPG_KEYID }}" > pubkey.gpg
+          flatpak build-bundle \
+            --repo-url=https://shakeelosmani.github.io/avd_feed_connect/repo \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            --gpg-keys=pubkey.gpg \
+            repo avd_feed_connect.flatpak io.github.shakeelosmani.avd_feed_connect stable
 
       - name: Assemble GitHub Pages site (repo + flatpakref)
         run: |
