@@ -131,6 +131,7 @@ def _get(url, token, accept="*/*"):
 
 
 def _save_cache(refresh_token):
+    os.makedirs(os.path.dirname(CACHE), exist_ok=True)  # XDG data dir may not exist yet
     fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump({"refresh_token": refresh_token, "obtained": int(time.time())}, f)
