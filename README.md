@@ -51,16 +51,32 @@ The Flatpak bundles a FreeRDP build with two things stock upstream lacks:
 - **Camera redirection** (`CHANNEL_RDPECAM_CLIENT`), plus microphone and
   multi-monitor.
 
-## Install (Flatpak)
+## Install
+
+[![Latest release](https://img.shields.io/github/v/release/shakeelosmani/avd_feed_connect)](https://github.com/shakeelosmani/avd_feed_connect/releases/latest)
+
+Download the single-file bundle from the
+[latest release](https://github.com/shakeelosmani/avd_feed_connect/releases/latest)
+and install it (needs `flatpak` and the Flathub remote for the GNOME 49 runtime):
 
 ```bash
-flatpak install flathub io.github.shakeelosmani.avd_feed_connect   # once on Flathub
+# one-time, if you don't have the Flathub remote yet:
+flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+
+# install the downloaded bundle and run:
+flatpak install --user avd_feed_connect.flatpak
+flatpak run io.github.shakeelosmani.avd_feed_connect
 ```
 
-### Build locally
+The runtime (~a few hundred MB, shared with other Flatpak apps) is pulled from
+Flathub automatically on first install.
+
+*(A Flathub listing is planned; until then, use the release bundle above.)*
+
+### Build it yourself
 
 ```bash
-flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49
+flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.flatpak.Builder
 flatpak run org.flatpak.Builder --user --install --force-clean build-dir \
   io.github.shakeelosmani.avd_feed_connect.yml
 flatpak run io.github.shakeelosmani.avd_feed_connect
