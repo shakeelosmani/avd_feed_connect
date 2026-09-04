@@ -44,6 +44,30 @@ APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
 APP_ICON = APP_ID  # icon installed under the app-id name (Flatpak convention)
 
+# Persist the last discovered workspaces so reopening shows them instantly
+# (like the Windows App), instead of bouncing to sign-in on every launch.
+WS_CACHE = os.path.join(os.path.dirname(af.CACHE), "workspaces.json")
+
+
+def _save_ws_cache(resources):
+    try:
+        os.makedirs(os.path.dirname(WS_CACHE), exist_ok=True)
+        with open(WS_CACHE, "w") as f:
+            json.dump({"upn": af.UPN, "resources": resources}, f)
+    except OSError:
+        pass
+
+
+def _load_ws_cache():
+    try:
+        with open(WS_CACHE) as f:
+            d = json.load(f)
+        if d.get("upn") and not af.UPN:
+            af.UPN = d["upn"]
+        return d.get("resources") or []
+    except (OSError, ValueError):
+        return []
+
 
 def _bearer_bytes(url, token):
     """Binary GET with the approved UA headers (for icons; af._get decodes text)."""
@@ -90,9 +114,31 @@ class AvdApp(Gtk.Application):
         self._build_ui()
         self._install_tray()
         self.win.show_all()
-        # try a silent sign-in first; fall back to the sign-in page
-        self._set_status("Signing in…")
-        threading.Thread(target=self._silent_signin, daemon=True).start()
+        # If we have previously discovered workspaces, show them immediately and
+        # refresh the token + feed silently in the background (Windows-App-style
+        # persistent session). Only a first run with no cache shows sign-in.
+        cached = _load_ws_cache()
+        if cached:
+            self._populate(cached)
+            self._set_status(f"{len(cached)} workspaces · refreshing…")
+            threading.Thread(target=self._background_refresh, daemon=True).start()
+        else:
+            self._set_status("Signing in…")
+            threading.Thread(target=self._silent_signin, daemon=True).start()
+
+    def _background_refresh(self):
+        """Silently refresh the token and re-fetch the feed, keeping the cached
+        workspaces on screen if it fails (never auto-bounces to sign-in)."""
+        if not self._do_refresh(silent=True):
+            self._set_status("Showing saved workspaces · sign in again to refresh")
+            return
+        try:
+            resources = af.enumerate_feed(self.token)
+        except Exception:
+            self._set_status("Showing saved workspaces (couldn't refresh)")
+            return
+        _save_ws_cache(resources)
+        GLib.idle_add(self._populate, resources)
 
     def _build_ui(self):
         prov = Gtk.CssProvider()
@@ -322,11 +368,14 @@ class AvdApp(Gtk.Application):
         self._load_feed_bg()
 
     def _sign_out(self):
-        try:
-            if os.path.exists(af.CACHE):
-                os.remove(af.CACHE)
-        except Exception:
-            pass
+        # Manual sign-out is the ONLY thing that clears the session + workspaces.
+        for p in (af.CACHE, WS_CACHE):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
+        af.UPN = "" if not os.environ.get("AVD_UPN") else af.UPN
         with self._token_lock:
             self.token = None
             self._deadline = 0.0
@@ -349,14 +398,22 @@ class AvdApp(Gtk.Application):
         threading.Thread(target=self._load_feed, daemon=True).start()
 
     def _load_feed(self):
+        have_cache = bool(_load_ws_cache())
         if not self._ensure_token():
+            if not have_cache:
+                self._show("signin")
             return
         try:
             resources = af.enumerate_feed(self.token)
-        except SystemExit as e:
-            self._error(str(e)); self._show("signin"); return
         except Exception as e:
-            self._error("Feed error: " + str(e)); self._show("signin"); return
+            # Keep whatever is on screen if we have a cached list; only a first
+            # run with nothing to show falls back to the sign-in page.
+            if have_cache:
+                self._set_status("Couldn't refresh workspaces — showing saved list")
+            else:
+                self._error("Feed error: " + str(e)); self._show("signin")
+            return
+        _save_ws_cache(resources)
         GLib.idle_add(self._populate, resources)
 
     def _populate(self, resources):
@@ -370,9 +427,11 @@ class AvdApp(Gtk.Application):
         self.stack.set_visible_child_name("workspaces")
         if getattr(self, "_signout_item", None) is not None:
             self._signout_item.set_sensitive(True)
-        # fetch icons in the background
-        threading.Thread(target=self._load_icons, args=(resources,),
-                         daemon=True).start()
+        # fetch icons in the background (needs a token; skipped for the cached
+        # view before the silent refresh completes — icons fill in on refresh)
+        if self.token:
+            threading.Thread(target=self._load_icons, args=(resources,),
+                             daemon=True).start()
 
     def _make_tile(self, res):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -461,8 +520,13 @@ class AvdApp(Gtk.Application):
 
     def _launch(self, child, res):
         if not self._ensure_token():
+            # Session lapsed and can't refresh silently — re-auth on demand
+            # (like the Windows App when you click a workspace after a while),
+            # keeping the workspace list intact.
             child._launching = False
             self._set_tile_state(res["id"], "", None)
+            self._set_status("Sign in to connect")
+            GLib.idle_add(self._interactive_signin)
             return
         try:
             path = af.download_rdp(self.token, res)

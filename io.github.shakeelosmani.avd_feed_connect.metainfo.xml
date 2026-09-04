@@ -61,6 +61,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.1" date="2026-09-04">
+      <description>
+        <p>Persistent session: reopening shows your workspaces immediately and
+        refreshes the token in the background, like the Windows App. Sign-in is
+        only required on first run or after an explicit sign out.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-04">
       <description>
         <p>First release: feed discovery, in-app sign-in, workspace grid, and
