@@ -122,6 +122,8 @@ class AvdApp(Gtk.Application):
         menu = Gtk.Menu()
         mi_out = Gtk.MenuItem(label="Sign out")
         mi_out.connect("activate", lambda *_: self._sign_out())
+        mi_out.set_sensitive(False)  # nothing to sign out of until signed in
+        self._signout_item = mi_out
         menu.append(mi_out)
         menu.show_all()
         menu_btn.set_popup(menu)
@@ -201,7 +203,12 @@ class AvdApp(Gtk.Application):
         GLib.idle_add(lambda: self.status.set_text(text) if self.status else None)
 
     def _show(self, name):
-        GLib.idle_add(lambda: self.stack.set_visible_child_name(name))
+        def apply():
+            self.stack.set_visible_child_name(name)
+            # "Sign out" only makes sense once we're signed in (workspaces view)
+            if getattr(self, "_signout_item", None) is not None:
+                self._signout_item.set_sensitive(name == "workspaces")
+        GLib.idle_add(apply)
 
     # ---- auth / token lifecycle ------------------------------------------
     def _apply_token(self, tok):
@@ -358,9 +365,11 @@ class AvdApp(Gtk.Application):
         for res in resources:
             self.grid.add(self._make_tile(res))
         self.grid.show_all()
-        self.status.set_text(
-            f"{len(resources)} workspaces · signed in as {af.UPN}")
+        who = af.UPN or "your account"
+        self.status.set_text(f"{len(resources)} workspaces · signed in as {who}")
         self.stack.set_visible_child_name("workspaces")
+        if getattr(self, "_signout_item", None) is not None:
+            self._signout_item.set_sensitive(True)
         # fetch icons in the background
         threading.Thread(target=self._load_icons, args=(resources,),
                          daemon=True).start()
@@ -439,21 +448,26 @@ class AvdApp(Gtk.Application):
     # ---- launch + live connection state -----------------------------------
     def _on_tile_activated(self, flowbox, child):
         res = child._res
-        if child._proc and child._proc.poll() is None:
-            # already connected/connecting — just note it, don't double-launch
+        # Guard synchronously on the main thread: the second click of a
+        # double-click arrives before the launch thread has set child._proc, so
+        # a flag set here (not the proc handle) is what prevents a second launch.
+        if getattr(child, "_launching", False) or (child._proc and child._proc.poll() is None):
             self.status.set_text(f"{res['title']} is already open")
             return
+        child._launching = True
         self._set_tile_state(res["id"], "● Connecting…", "state-connecting")
         self.status.set_text(f"Connecting to {res['title']}…")
         threading.Thread(target=self._launch, args=(child, res), daemon=True).start()
 
     def _launch(self, child, res):
         if not self._ensure_token():
+            child._launching = False
             self._set_tile_state(res["id"], "", None)
             return
         try:
             path = af.download_rdp(self.token, res)
         except SystemExit as e:
+            child._launching = False
             self._error(str(e))
             self._set_tile_state(res["id"], "● Failed", "state-ended")
             return
@@ -474,9 +488,9 @@ class AvdApp(Gtk.Application):
                                     stderr=subprocess.STDOUT)
         child._proc = proc
         self._set_status(f"Launched {res['title']}")
-        self._watch_session(res, proc, logpath)
+        self._watch_session(child, res, proc, logpath)
 
-    def _watch_session(self, res, proc, logpath):
+    def _watch_session(self, child, res, proc, logpath):
         """Flip the tile to 'Connected' once the session logs on, then back to
         idle when sdl-freerdp exits."""
         connected = False
@@ -494,7 +508,8 @@ class AvdApp(Gtk.Application):
                 except OSError:
                     pass
             time.sleep(1.0)
-        # process exited
+        # process exited — allow relaunch
+        child._launching = False
         self._set_tile_state(res["id"], "○ Disconnected", "state-ended")
         self._set_status(f"{res['title']} session ended")
         # clear the label after a short while
