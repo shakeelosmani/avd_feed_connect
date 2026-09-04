@@ -210,6 +210,7 @@ class AvdApp(Gtk.Application):
         with self._token_lock:
             self.token = tok["access_token"]
             self._deadline = time.monotonic() + int(tok.get("expires_in", 3600))
+        af.set_upn_from_token(tok)  # learn the account for /u: and the status bar
         rt = tok.get("refresh_token")
         if rt:
             af._save_cache(rt)
@@ -463,9 +464,11 @@ class AvdApp(Gtk.Application):
         os.makedirs(af.OUT, exist_ok=True)
         safe = _re.sub(r"[^A-Za-z0-9]+", "_", res["title"])[:40]
         logpath = os.path.join(af.OUT, f"session_{safe}.log")
-        argv = [af.SDL, path, "/gateway:type:arm", "/sec:aad", f"/u:{af.UPN}",
-                "/sound:sys:pulse", "/microphone", "/cert:ignore",
-                "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
+        argv = [af.SDL, path, "/gateway:type:arm", "/sec:aad"]
+        if af.UPN:
+            argv.append(f"/u:{af.UPN}")
+        argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
+                 "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
         with open(logpath, "w") as log:
             proc = subprocess.Popen(argv, env=env, stdout=log,
                                     stderr=subprocess.STDOUT)

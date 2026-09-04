@@ -60,8 +60,12 @@ import urllib.error
 import webbrowser
 import xml.etree.ElementTree as ET
 
-TENANT = os.environ.get("AVD_TENANT", "6ebd861f-4761-4a83-b925-1274cbefe637")
-UPN = os.environ.get("AVD_UPN", "sosmani@amerisave.com")
+# Multi-tenant by default: "organizations" lets any work/school account sign in
+# and the feed returns every workspace that account is entitled to. Override
+# with AVD_TENANT to pin a single tenant. UPN is normally learned from the
+# signed-in token (see set_upn_from_token); AVD_UPN can pre-fill the login hint.
+TENANT = os.environ.get("AVD_TENANT", "organizations")
+UPN = os.environ.get("AVD_UPN", "")
 CLIENT_ID = "a85cf173-4192-42f8-81fa-777a763e6e2c"  # Microsoft Remote Desktop (public)
 SCOPE = "https://www.wvd.microsoft.com/.default offline_access openid profile"
 DISCOVERY = "https://rdweb.wvd.microsoft.com/api/arm/feeddiscovery"
@@ -222,6 +226,27 @@ def _refresh(rt):
     return tok
 
 
+def set_upn_from_token(tok):
+    """Learn the signed-in user's UPN from the id_token so /u: and the login
+    hint work without hardcoding an account. Sets the module-level UPN when it
+    isn't already pinned via AVD_UPN."""
+    global UPN
+    if UPN:
+        return UPN
+    idt = tok.get("id_token")
+    if not idt or idt.count(".") < 2:
+        return UPN
+    try:
+        payload = idt.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # pad base64url
+        claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8", "replace"))
+        UPN = claims.get("preferred_username") or claims.get("upn") \
+            or claims.get("unique_name") or claims.get("email") or ""
+    except Exception:
+        pass
+    return UPN
+
+
 def get_token(verbose=True, use_device_code=False):
     if os.path.exists(CACHE):
         with open(CACHE) as f:
@@ -229,6 +254,7 @@ def get_token(verbose=True, use_device_code=False):
         tok = _refresh(rt)
         if tok:
             _save_cache(tok.get("refresh_token", rt))
+            set_upn_from_token(tok)
             if verbose:
                 print(f"token: silent refresh ok (expires_in={tok['expires_in']}s,"
                       f" rotated_refresh={'yes' if 'refresh_token' in tok else 'no'})")
@@ -237,6 +263,7 @@ def get_token(verbose=True, use_device_code=False):
             print("cached refresh token invalid, signing in again")
     tok = _device_code() if use_device_code else _auth_code()
     _save_cache(tok["refresh_token"])
+    set_upn_from_token(tok)
     if verbose:
         how = "device-code" if use_device_code else "interactive auth-code"
         print(f"token: {how} sign-in ok (expires_in={tok['expires_in']}s)")
@@ -342,9 +369,11 @@ def launch(path):
             os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
     os.makedirs(OUT, exist_ok=True)
     log = os.path.join(OUT, "feed-last-run.log")
-    argv = [SDL, path, "/gateway:type:arm", "/sec:aad", f"/u:{UPN}",
-            "/sound:sys:pulse", "/microphone", "/cert:ignore",
-            "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
+    argv = [SDL, path, "/gateway:type:arm", "/sec:aad"]
+    if UPN:
+        argv.append(f"/u:{UPN}")
+    argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
+             "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
     print("launching:", " ".join(argv))
     print("log:", log)
     with open(log, "w") as lf:
