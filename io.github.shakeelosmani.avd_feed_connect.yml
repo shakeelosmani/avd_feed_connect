@@ -117,6 +117,7 @@ modules:
       - -DWITH_SWSCALE=ON
       - -DWITH_X11=ON
       - -DWITH_KRB5=OFF          # AVD gateway uses AAD, not kerberos — keeps deps lean
+      - -DWITH_FUSE=OFF          # FUSE clipboard file-copy; not needed, avoids fuse3 dep
       - -DWITH_MANPAGES=OFF
       - -DCHANNEL_RDPECAM_CLIENT=ON
       - -DWINPR_UTILS_IMAGE_PNG=ON
