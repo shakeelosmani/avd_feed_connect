@@ -7,11 +7,8 @@
 #     (FreeRDP PR #13334); shipping plain upstream would crash for users.
 #   * the camera-redirection channel (-DCHANNEL_RDPECAM_CLIENT=ON).
 #
-# NOTE: this manifest has not yet been through a full `flatpak-builder` run on a
-# clean machine; the FreeRDP module has the most external deps and is the most
-# likely to need a tweak (an extra -dev module) on first build. Everything is
-# pinned to tags/commits for reproducibility — replace tags with `commit:` SHAs
-# before submitting to Flathub.
+# Builds and runs on GNOME 49; every source is pinned to a commit for
+# reproducibility.
 app-id: io.github.shakeelosmani.avd_feed_connect
 runtime: org.gnome.Platform
 runtime-version: '49'
@@ -55,7 +52,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL.git
-        tag: release-3.2.16   # bump to match your ~/opt/sdl3 build; pin a commit for Flathub
+        tag: release-3.2.30
+        commit: f5e5f6588921eed3d7d048ce43d9eb1ff0da0ffc
 
   - name: sdl3-ttf
     buildsystem: cmake-ninja
@@ -70,7 +68,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL_ttf.git
-        tag: release-3.2.2    # pin a commit for Flathub
+        tag: release-3.2.2
+        commit: a1ce3670aec736ecbf0936c43f2f0cc53aa61e5b
 
   # ---- small FreeRDP deps not guaranteed in the runtime ------------------
   - name: cjson
@@ -86,6 +85,7 @@ modules:
       - type: git
         url: https://github.com/DaveGamble/cJSON.git
         tag: v1.7.18
+        commit: acc76239bee01d8e9c858ae2cab296704e52d916
 
   # libusb-1.0 — required by the rdpecam V4L camera subsystem (UVC H.264).
   # (The V4L HAL itself only needs <linux/videodev2.h>, which the SDK ships, so
@@ -152,5 +152,6 @@ modules:
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect.svg
         /app/share/icons/hicolor/scalable/apps/io.github.shakeelosmani.avd_feed_connect.svg
     sources:
-      - type: dir
-        path: .
+      - type: git
+        url: https://github.com/shakeelosmani/avd_feed_connect.git
+        commit: 26538531e7b469345c99359e3a515099cdf4a19a

@@ -37,13 +37,13 @@
   <screenshots>
     <screenshot type="default">
       <caption>Your Azure Virtual Desktop workspaces</caption>
-      <image>https://raw.githubusercontent.com/shakeelosmani/avd-feed-connect/main/screenshots/workspaces.png</image>
+      <image>https://raw.githubusercontent.com/shakeelosmani/avd_feed_connect/main/screenshots/workspaces.png</image>
     </screenshot>
   </screenshots>
 
-  <url type="homepage">https://github.com/shakeelosmani/avd-feed-connect</url>
-  <url type="bugtracker">https://github.com/shakeelosmani/avd-feed-connect/issues</url>
-  <url type="vcs-browser">https://github.com/shakeelosmani/avd-feed-connect</url>
+  <url type="homepage">https://github.com/shakeelosmani/avd_feed_connect</url>
+  <url type="bugtracker">https://github.com/shakeelosmani/avd_feed_connect/issues</url>
+  <url type="vcs-browser">https://github.com/shakeelosmani/avd_feed_connect</url>
 
   <categories>
     <category>Network</category>
