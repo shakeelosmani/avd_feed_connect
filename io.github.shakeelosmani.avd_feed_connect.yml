@@ -130,6 +130,13 @@ modules:
         # branch fix-pulse-device-hotunplug — pulse hot-unplug + rdpsnd busy-loop
         # fixes (PR #13334) on top of upstream master f91da7305.
         commit: 8a5076cb423f66c93d815a96fd69f7aab73cdf74
+      # WITH_WEBVIEW normally git-clones this at configure time (fails in the
+      # offline Flatpak build). Placed at external/webview, FreeRDP's CMake uses
+      # it directly instead of fetching. (WebKitGTK comes from the runtime.)
+      - type: git
+        url: https://github.com/akallabeth/webview
+        commit: 2a0a1303c5e8c9c5b73fa9e461739042ebdabe6f  # branch navigation-listener
+        dest: external/webview
 
   # ---- the app itself ----------------------------------------------------
   - name: avd-feed-connect
