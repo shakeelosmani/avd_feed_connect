@@ -46,9 +46,8 @@ flatpak install flathub io.github.shakeelosmani.avd_feed_connect   # once on Fla
 ### Build locally
 
 ```bash
-flatpak install flathub org.gnome.Platform//48 org.gnome.Sdk//48 \
-  org.freedesktop.Platform.ffmpeg-full//24.08
-flatpak-builder --user --install --force-clean build-dir \
+flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49
+flatpak run org.flatpak.Builder --user --install --force-clean build-dir \
   io.github.shakeelosmani.avd_feed_connect.yml
 flatpak run io.github.shakeelosmani.avd_feed_connect
 ```

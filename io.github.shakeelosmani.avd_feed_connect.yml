@@ -14,7 +14,7 @@
 # before submitting to Flathub.
 app-id: io.github.shakeelosmani.avd_feed_connect
 runtime: org.gnome.Platform
-runtime-version: '48'
+runtime-version: '49'
 sdk: org.gnome.Sdk
 command: avd-feed-connect
 
@@ -28,16 +28,13 @@ finish-args:
   - --device=all                    # webcam (camera redirection) + input
   - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
   - --talk-name=org.freedesktop.Notifications
-  - --env=LD_LIBRARY_PATH=/app/lib:/app/lib/ffmpeg
+  - --env=LD_LIBRARY_PATH=/app/lib
 
-# Full ffmpeg (AAC encoder for the audin/microphone channel, extra video codecs)
-add-extensions:
-  org.freedesktop.Platform.ffmpeg-full:
-    directory: lib/ffmpeg
-    version: '24.08'
-    add-ld-path: '.'
-    no-autodownload: false
-    autodelete: false
+# NOTE on ffmpeg: FreeRDP is built WITH_FFMPEG against the runtime's own ffmpeg
+# (the GNOME 49 / freedesktop 25.08 base ships libav*). The org.freedesktop
+# .Platform.ffmpeg-full extension is intentionally NOT used because it is not yet
+# published for the 25.08 base. If the audin microphone path needs the AAC
+# encoder and the base ffmpeg lacks it, add a bundled ffmpeg module here.
 
 cleanup:
   - /include
@@ -137,7 +134,6 @@ modules:
         /app/share/metainfo/io.github.shakeelosmani.avd_feed_connect.metainfo.xml
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect.svg
         /app/share/icons/hicolor/scalable/apps/io.github.shakeelosmani.avd_feed_connect.svg
-      - mkdir -p /app/lib/ffmpeg
     sources:
       - type: dir
         path: .
