@@ -1,0 +1,143 @@
+# Flatpak manifest for AVD Feed + Connect (Linux).
+#
+# Bundles a purpose-built SDL3 FreeRDP client so the app connects end-to-end on
+# any machine, with two things a stock FreeRDP lacks:
+#   * the pulse hot-unplug + rdpsnd busy-loop fixes (fork commit below) — WITHOUT
+#     these an audio-device change mid Teams call FREEZES the whole session
+#     (FreeRDP PR #13334); shipping plain upstream would crash for users.
+#   * the camera-redirection channel (-DCHANNEL_RDPECAM_CLIENT=ON).
+#
+# NOTE: this manifest has not yet been through a full `flatpak-builder` run on a
+# clean machine; the FreeRDP module has the most external deps and is the most
+# likely to need a tweak (an extra -dev module) on first build. Everything is
+# pinned to tags/commits for reproducibility — replace tags with `commit:` SHAs
+# before submitting to Flathub.
+app-id: io.github.shakeelosmani.avd_feed_connect
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: avd-feed-connect
+
+finish-args:
+  - --share=network                 # feed discovery, AAD sign-in, RDP gateway
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio             # RDP audio playback + microphone redirect
+  - --device=dri                    # GPU for the RDP graphics pipeline
+  - --device=all                    # webcam (camera redirection) + input
+  - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
+  - --talk-name=org.freedesktop.Notifications
+  - --env=LD_LIBRARY_PATH=/app/lib:/app/lib/ffmpeg
+
+# Full ffmpeg (AAC encoder for the audin/microphone channel, extra video codecs)
+add-extensions:
+  org.freedesktop.Platform.ffmpeg-full:
+    directory: lib/ffmpeg
+    version: '24.08'
+    add-ld-path: '.'
+    no-autodownload: false
+    autodelete: false
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/man
+  - /share/doc
+  - '*.a'
+  - '*.la'
+
+modules:
+  # ---- SDL3 + SDL3_ttf (not in the GNOME runtime) ------------------------
+  - name: sdl3
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDL_STATIC=OFF
+    sources:
+      - type: git
+        url: https://github.com/libsdl-org/SDL.git
+        tag: release-3.2.16   # bump to match your ~/opt/sdl3 build; pin a commit for Flathub
+
+  - name: sdl3-ttf
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDLTTF_VENDORED=ON
+    sources:
+      - type: git
+        url: https://github.com/libsdl-org/SDL_ttf.git
+        tag: release-3.2.2    # pin a commit for Flathub
+
+  # ---- small FreeRDP deps not guaranteed in the runtime ------------------
+  - name: cjson
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_CJSON_TEST=OFF
+      - -DBUILD_SHARED_AND_STATIC_LIBS=OFF
+    sources:
+      - type: git
+        url: https://github.com/DaveGamble/cJSON.git
+        tag: v1.7.18
+
+  # v4l-utils gives libv4l2, used by the rdpecam V4L camera HAL
+  - name: v4l-utils
+    buildsystem: autotools
+    config-opts:
+      - --disable-qv4l2
+      - --disable-v4l-utils
+      - --without-jpeg
+    sources:
+      - type: archive
+        url: https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.28.1.tar.bz2
+        sha256: PLACEHOLDER_FILL_ON_BUILD   # `flatpak-builder --download` prints the real sum
+
+  # ---- the FreeRDP SDL3 client, our -cam tree with the pulse fixes -------
+  - name: freerdp
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DWITH_CLIENT_SDL=ON
+      - -DWITH_CLIENT_SDL3=ON
+      - -DWITH_CLIENT_SDL2=OFF
+      - -DWITH_SERVER=OFF
+      - -DWITH_SAMPLE=OFF
+      - -DWITH_AAD=ON            # connection-time AAD popup (uses runtime WebKitGTK)
+      - -DWITH_WEBVIEW=ON
+      - -DWITH_PULSE=ON
+      - -DWITH_FFMPEG=ON
+      - -DWITH_SWSCALE=ON
+      - -DWITH_X11=ON
+      - -DWITH_KRB5=OFF          # AVD gateway uses AAD, not kerberos — keeps deps lean
+      - -DWITH_MANPAGES=OFF
+      - -DCHANNEL_RDPECAM_CLIENT=ON
+      - -DWINPR_UTILS_IMAGE_PNG=ON
+      - -DWINPR_UTILS_IMAGE_JPEG=ON
+      - -DWINPR_UTILS_IMAGE_WEBP=ON
+      - -DWINPR_UTILS_IMAGE_DIBv5=ON
+    sources:
+      - type: git
+        url: https://github.com/shakeelosmani/FreeRDP.git
+        # branch fix-pulse-device-hotunplug — pulse hot-unplug + rdpsnd busy-loop
+        # fixes (PR #13334) on top of upstream master f91da7305.
+        commit: 8a5076cb423f66c93d815a96fd69f7aab73cdf74
+
+  # ---- the app itself ----------------------------------------------------
+  - name: avd-feed-connect
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 src/avdfeed.py       /app/share/avd-feed-connect/avdfeed.py
+      - install -Dm755 src/avd_feed_gui.py  /app/share/avd-feed-connect/avd_feed_gui.py
+      - install -Dm755 avd-feed-connect     /app/bin/avd-feed-connect
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect.desktop
+        /app/share/applications/io.github.shakeelosmani.avd_feed_connect.desktop
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect.metainfo.xml
+        /app/share/metainfo/io.github.shakeelosmani.avd_feed_connect.metainfo.xml
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect.svg
+        /app/share/icons/hicolor/scalable/apps/io.github.shakeelosmani.avd_feed_connect.svg
+      - mkdir -p /app/lib/ffmpeg
+    sources:
+      - type: dir
+        path: .

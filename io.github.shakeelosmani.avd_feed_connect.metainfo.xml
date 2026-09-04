@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.shakeelosmani.avd_feed_connect</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>AVD Feed + Connect Linux</name>
+  <summary>Connect to your Azure Virtual Desktop workspaces</summary>
+
+  <developer id="io.github.shakeelosmani">
+    <name>Shakeel Osmani</name>
+  </developer>
+  <developer_name>Shakeel Osmani</developer_name>
+
+  <description>
+    <p>
+      AVD Feed + Connect is a native Linux client for Azure Virtual Desktop
+      (AVD) and Windows 365. Sign in with your work account and it lists the
+      desktops and remote apps you are entitled to, just like the Microsoft
+      Windows App on Windows and macOS — then launches them over RDP.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>In-app Microsoft Entra ID sign-in (interactive, so Conditional Access is honored)</li>
+      <li>Automatic workspace/resource discovery from the AVD feed</li>
+      <li>Workspace grid with the real per-resource icons</li>
+      <li>Camera and microphone redirection, and multi-monitor support</li>
+      <li>Bundles a hardened FreeRDP that survives audio-device changes mid-call</li>
+    </ul>
+    <p>
+      This is an unofficial client and is not affiliated with or endorsed by
+      Microsoft.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.shakeelosmani.avd_feed_connect.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Your Azure Virtual Desktop workspaces</caption>
+      <image>https://raw.githubusercontent.com/shakeelosmani/avd-feed-connect/main/screenshots/workspaces.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/shakeelosmani/avd-feed-connect</url>
+  <url type="bugtracker">https://github.com/shakeelosmani/avd-feed-connect/issues</url>
+  <url type="vcs-browser">https://github.com/shakeelosmani/avd-feed-connect</url>
+
+  <categories>
+    <category>Network</category>
+    <category>RemoteAccess</category>
+  </categories>
+
+  <keywords>
+    <keyword>AVD</keyword>
+    <keyword>RDP</keyword>
+    <keyword>Azure Virtual Desktop</keyword>
+    <keyword>Windows 365</keyword>
+    <keyword>FreeRDP</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-09-04">
+      <description>
+        <p>First release: feed discovery, in-app sign-in, workspace grid, and
+        connect via a bundled hardened FreeRDP (camera/mic redirection).</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AVD Feed + Connect Linux
+Comment=Sign in and connect to your Azure Virtual Desktop workspaces
+Exec=avd-feed-connect
+Icon=io.github.shakeelosmani.avd_feed_connect
+Terminal=false
+Categories=Network;RemoteAccess;GTK;
+Keywords=avd;rdp;remote;azure;virtual;desktop;windows;freerdp;
+StartupNotify=true

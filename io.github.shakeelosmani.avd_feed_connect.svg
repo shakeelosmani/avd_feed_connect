@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b8ff0"/>
+      <stop offset="1" stop-color="#0a5bd0"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eaf3ff"/>
+      <stop offset="1" stop-color="#c4defb"/>
+    </linearGradient>
+  </defs>
+  <!-- badge -->
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="url(#bg)"/>
+  <!-- monitor -->
+  <rect x="60" y="74" width="136" height="92" rx="12" fill="url(#screen)"/>
+  <rect x="60" y="74" width="136" height="92" rx="12" fill="none" stroke="#0a4aa8" stroke-width="4" opacity="0.25"/>
+  <!-- stand -->
+  <rect x="118" y="166" width="20" height="20" fill="#dcebfb"/>
+  <rect x="92" y="186" width="72" height="12" rx="6" fill="#dcebfb"/>
+  <!-- cloud (feed) on screen -->
+  <g fill="#2b7de9">
+    <circle cx="112" cy="118" r="16"/>
+    <circle cx="134" cy="112" r="20"/>
+    <circle cx="156" cy="120" r="15"/>
+    <rect x="108" y="118" width="52" height="20" rx="10"/>
+  </g>
+  <!-- connect arrow coming down from cloud -->
+  <g fill="#ffffff">
+    <rect x="130" y="120" width="8" height="20"/>
+    <path d="M134 150 l-12 -14 h24 z"/>
+  </g>
+</svg>

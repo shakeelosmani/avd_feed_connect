@@ -1,0 +1,8 @@
+.flatpak-builder/
+build/
+build-dir/
+repo/
+*.flatpak
+__pycache__/
+*.pyc
+.avd-token-cache.json
