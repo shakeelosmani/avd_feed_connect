@@ -61,7 +61,12 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
-      - -DSDLTTF_VENDORED=ON
+      # Use the runtime's freetype; skip vendored harfbuzz (its in-source CMake
+      # guard breaks the build) and plutosvg — the FreeRDP SDL UI is plain text.
+      - -DSDLTTF_VENDORED=OFF
+      - -DSDLTTF_HARFBUZZ=OFF
+      - -DSDLTTF_PLUTOSVG=OFF
+      - -DSDLTTF_SAMPLES=OFF
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL_ttf.git
