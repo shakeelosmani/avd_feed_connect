@@ -82,17 +82,17 @@ modules:
         url: https://github.com/DaveGamble/cJSON.git
         tag: v1.7.18
 
-  # v4l-utils gives libv4l2, used by the rdpecam V4L camera HAL
-  - name: v4l-utils
+  # libusb-1.0 — required by the rdpecam V4L camera subsystem (UVC H.264).
+  # (The V4L HAL itself only needs <linux/videodev2.h>, which the SDK ships, so
+  # no libv4l package is required.)
+  - name: libusb
     buildsystem: autotools
     config-opts:
-      - --disable-qv4l2
-      - --disable-v4l-utils
-      - --without-jpeg
+      - --disable-udev
     sources:
       - type: archive
-        url: https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.28.1.tar.bz2
-        sha256: PLACEHOLDER_FILL_ON_BUILD   # `flatpak-builder --download` prints the real sum
+        url: https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2
+        sha256: ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575
 
   # ---- the FreeRDP SDL3 client, our -cam tree with the pulse fixes -------
   - name: freerdp
