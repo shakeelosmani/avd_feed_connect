@@ -1,6 +1,6 @@
 name: Build & Release Flatpak
 
-# On a version tag: build the app, sign it, publish the single-file bundle to a
+# On a version tag: build + sign the app, publish the single-file bundle to a
 # GitHub Release, and refresh the signed Flatpak repo + .flatpakref on GitHub
 # Pages (so `flatpak install <pages>/…​.flatpakref` and `flatpak update` work).
 #   push tag  vX.Y.Z   -> full release (bundle + Pages)
@@ -40,20 +40,18 @@ jobs:
             { print }
           ' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
 
-      - name: Build (signed) into an ostree repo
-        run: |
-          set -eu
-          flatpak-builder --user --disable-rofiles-fuse --force-clean \
-            --install-deps-from=flathub \
-            --repo=repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}" \
-            build-dir io.github.shakeelosmani.avd_feed_connect.yml
-          flatpak build-update-repo repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}"
+      # The action installs the runtime/SDK, builds into ./repo, signs it, and
+      # produces the single-file bundle.
+      - name: Build (signed)
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: avd_feed_connect.flatpak
+          manifest-path: io.github.shakeelosmani.avd_feed_connect.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          gpg-sign: ${{ secrets.FLATPAK_GPG_KEYID }}
 
-      - name: Make single-file bundle
-        run: |
-          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-            --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}" \
-            repo avd_feed_connect.flatpak io.github.shakeelosmani.avd_feed_connect stable
+      - name: Re-sign repo summary
+        run: flatpak build-update-repo repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}"
 
       - name: Assemble GitHub Pages site (repo + flatpakref)
         run: |
