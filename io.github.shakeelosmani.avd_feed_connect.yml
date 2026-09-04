@@ -102,6 +102,7 @@ modules:
   # ---- the FreeRDP SDL3 client, our -cam tree with the pulse fixes -------
   - name: freerdp
     buildsystem: cmake-ninja
+    builddir: true    # FreeRDP forbids in-source builds
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DWITH_CLIENT_SDL=ON
