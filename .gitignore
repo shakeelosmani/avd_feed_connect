@@ -6,3 +6,7 @@ repo/
 __pycache__/
 *.pyc
 .avd-token-cache.json
+avd_feed_connect.flatpak
+avd_feed_connect.flatpakref
+site/
+pubkey.b64

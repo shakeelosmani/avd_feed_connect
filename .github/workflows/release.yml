@@ -1,20 +1,20 @@
 name: Build & Release Flatpak
 
-# Build the single-file .flatpak bundle in a clean Flathub build container and,
-# on a version tag, publish it as a GitHub Release asset.
-#   - push a tag  vX.Y.Z   -> builds + creates/updates the release with the bundle
-#   - manual "Run workflow" -> builds only, bundle uploaded as a run artifact
+# On a version tag: build the app, sign it, publish the single-file bundle to a
+# GitHub Release, and refresh the signed Flatpak repo + .flatpakref on GitHub
+# Pages (so `flatpak install <pages>/…​.flatpakref` and `flatpak update` work).
+#   push tag  vX.Y.Z   -> full release (bundle + Pages)
+#   manual dispatch    -> build only (bundle uploaded as a run artifact)
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed to create the release
+  contents: write   # release + gh-pages push
 
 jobs:
-  flatpak:
-    name: Build bundle
+  build:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
@@ -22,9 +22,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin the app module to the exact commit being built, so the released
-      # bundle always matches this ref (the committed manifest stays pinned to a
-      # release commit for Flathub reproducibility).
+      - name: Import signing key
+        env:
+          KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          mkdir -p "$HOME/.gnupg" && chmod 700 "$HOME/.gnupg"
+          echo "$KEY" | base64 -d | gpg --batch --import
+          gpg --export "${{ secrets.FLATPAK_GPG_KEYID }}" | base64 -w0 > pubkey.b64
+
       - name: Pin app module to this commit
         run: |
           set -eu
@@ -33,14 +39,55 @@ jobs:
             /avd_feed_connect\.git/ { print; getline; sub(/commit:.*/, "commit: " sha); print; next }
             { print }
           ' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
-          echo "app module pinned to $GITHUB_SHA"
 
-      - name: Build Flatpak bundle
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - name: Build (signed) into an ostree repo
+        run: |
+          set -eu
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --install-deps-from=flathub \
+            --repo=repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}" \
+            build-dir io.github.shakeelosmani.avd_feed_connect.yml
+          flatpak build-update-repo repo --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}"
+
+      - name: Make single-file bundle
+        run: |
+          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            --gpg-sign="${{ secrets.FLATPAK_GPG_KEYID }}" \
+            repo avd_feed_connect.flatpak io.github.shakeelosmani.avd_feed_connect stable
+
+      - name: Assemble GitHub Pages site (repo + flatpakref)
+        run: |
+          set -eu
+          mkdir -p site/repo
+          cp -r repo/* site/repo/
+          touch site/.nojekyll
+          cat > site/avd_feed_connect.flatpakref <<EOF
+          [Flatpak Ref]
+          Name=io.github.shakeelosmani.avd_feed_connect
+          Branch=stable
+          Url=https://shakeelosmani.github.io/avd_feed_connect/repo
+          Title=AVD Feed + Connect (Linux)
+          IsRuntime=false
+          GPGKey=$(cat pubkey.b64)
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          SuggestRemoteName=avd-feed-connect
+          EOF
+          cat > site/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8"><title>AVD Feed + Connect</title>
+          <h1>AVD Feed + Connect (Linux)</h1>
+          <p>Install (double-click):
+          <a href="avd_feed_connect.flatpakref">avd_feed_connect.flatpakref</a></p>
+          <p><a href="https://github.com/shakeelosmani/avd_feed_connect">Source &amp; releases</a></p>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          bundle: avd_feed_connect.flatpak
-          manifest-path: io.github.shakeelosmani.avd_feed_connect.yml
-          cache-key: flatpak-builder-${{ github.sha }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          force_orphan: true
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
@@ -49,11 +96,20 @@ jobs:
           files: avd_feed_connect.flatpak
           generate_release_notes: true
           body: |
-            Single-file Flatpak bundle of AVD Feed + Connect (Linux).
+            ## Install
 
-            Install (needs Flatpak + the Flathub remote for the GNOME 49 runtime):
+            **One click:** open
+            [avd_feed_connect.flatpakref](https://shakeelosmani.github.io/avd_feed_connect/avd_feed_connect.flatpakref)
+            — or `flatpak install --user https://shakeelosmani.github.io/avd_feed_connect/avd_feed_connect.flatpakref`
 
-                flatpak install --user avd_feed_connect.flatpak
-                flatpak run io.github.shakeelosmani.avd_feed_connect
+            **Or** download `avd_feed_connect.flatpak` below and
+            `flatpak install --user avd_feed_connect.flatpak`.
 
             Bundles a hardened FreeRDP (pulse hot-unplug fixes + camera redirection).
+
+      - name: Upload bundle artifact (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: avd_feed_connect-flatpak
+          path: avd_feed_connect.flatpak

@@ -55,23 +55,29 @@ The Flatpak bundles a FreeRDP build with two things stock upstream lacks:
 
 [![Latest release](https://img.shields.io/github/v/release/shakeelosmani/avd_feed_connect)](https://github.com/shakeelosmani/avd_feed_connect/releases/latest)
 
-Download the single-file bundle from the
-[latest release](https://github.com/shakeelosmani/avd_feed_connect/releases/latest)
-and install it (needs `flatpak` and the Flathub remote for the GNOME 49 runtime):
+**Easiest — one click / one command** (from the signed repo on GitHub Pages):
+
+👉 **[Install (avd_feed_connect.flatpakref)](https://shakeelosmani.github.io/avd_feed_connect/avd_feed_connect.flatpakref)**
+
+Opening that file installs the app through GNOME Software / your Flatpak handler.
+Or from a terminal:
 
 ```bash
-# one-time, if you don't have the Flathub remote yet:
-flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
-
-# install the downloaded bundle and run:
-flatpak install --user avd_feed_connect.flatpak
+flatpak install --user https://shakeelosmani.github.io/avd_feed_connect/avd_feed_connect.flatpakref
 flatpak run io.github.shakeelosmani.avd_feed_connect
 ```
 
-The runtime (~a few hundred MB, shared with other Flatpak apps) is pulled from
-Flathub automatically on first install.
+This adds a small signed remote so the app also **updates** with
+`flatpak update`. The GNOME 49 runtime is pulled from Flathub automatically.
 
-*(A Flathub listing is planned; until then, use the release bundle above.)*
+**Alternative — single-file bundle** from the
+[latest release](https://github.com/shakeelosmani/avd_feed_connect/releases/latest):
+
+```bash
+flatpak install --user avd_feed_connect.flatpak
+```
+
+*(A Flathub listing is planned; until then, use either method above.)*
 
 ### Build it yourself
 
