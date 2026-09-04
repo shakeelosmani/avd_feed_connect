@@ -14,9 +14,6 @@ runtime: org.gnome.Platform
 runtime-version: '49'
 sdk: org.gnome.Sdk
 command: avd-feed-connect
-# Build to the 'stable' branch everywhere (flatpak-builder defaults to 'master'),
-# so the CI bundle, the Pages repo, and the .flatpakref (Branch=stable) all agree.
-default-branch: stable
 
 finish-args:
   - --share=network                 # feed discovery, AAD sign-in, RDP gateway
