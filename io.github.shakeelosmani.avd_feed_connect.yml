@@ -154,4 +154,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/shakeelosmani/avd_feed_connect.git
-        commit: 0a7fc7f17c99437b22be9f1ca13c15255bc89ecf
+        commit: ddf6aa33b9fe09df5c25ff47f9e26c5613165070
