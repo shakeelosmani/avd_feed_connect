@@ -41,15 +41,15 @@ drives a bundled, hardened FreeRDP for the actual connection.
 Token refresh is the standard OAuth2 `refresh_token` grant (offline_access);
 the app renews the access token silently before it expires.
 
-## The bundled FreeRDP matters
+## The bundled FreeRDP
 
-The Flatpak bundles a FreeRDP build with two things stock upstream lacks:
+The Flatpak builds FreeRDP from upstream `master` with **camera redirection**
+(`CHANNEL_RDPECAM_CLIENT`) enabled, plus microphone and multi-monitor.
 
-- **Pulse hot-unplug + rdpsnd busy-loop fixes** ([FreeRDP#13334](https://github.com/FreeRDP/FreeRDP/pull/13334)) —
-  without these, changing the audio device mid-call (e.g. plugging headphones
-  during a Teams call) **freezes the whole session**.
-- **Camera redirection** (`CHANNEL_RDPECAM_CLIENT`), plus microphone and
-  multi-monitor.
+It also includes the **PulseAudio hot-unplug + rdpsnd busy-loop fixes**
+([FreeRDP#13334](https://github.com/FreeRDP/FreeRDP/pull/13334), now merged
+upstream) — without them, changing the audio device mid-call (e.g. plugging
+headphones during a Teams call) **freezes the whole session**.
 
 ## Install
 

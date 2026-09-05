@@ -2,9 +2,9 @@
 #
 # Bundles a purpose-built SDL3 FreeRDP client so the app connects end-to-end on
 # any machine, with two things a stock FreeRDP lacks:
-#   * the pulse hot-unplug + rdpsnd busy-loop fixes (fork commit below) — WITHOUT
-#     these an audio-device change mid Teams call FREEZES the whole session
-#     (FreeRDP PR #13334); shipping plain upstream would crash for users.
+#   * the pulse hot-unplug + rdpsnd busy-loop fixes (FreeRDP PR #13334, now
+#     MERGED to upstream master) — without them an audio-device change mid Teams
+#     call FREEZES the whole session.
 #   * the camera-redirection channel (-DCHANNEL_RDPECAM_CLIENT=ON).
 #
 # Builds and runs on GNOME 49; every source is pinned to a commit for
@@ -126,10 +126,11 @@ modules:
       - -DWINPR_UTILS_IMAGE_DIBv5=ON
     sources:
       - type: git
-        url: https://github.com/shakeelosmani/FreeRDP.git
-        # branch fix-pulse-device-hotunplug — pulse hot-unplug + rdpsnd busy-loop
-        # fixes (PR #13334) on top of upstream master f91da7305.
-        commit: 8a5076cb423f66c93d815a96fd69f7aab73cdf74
+        url: https://github.com/FreeRDP/FreeRDP.git
+        # Upstream master — the pulse hot-unplug + rdpsnd busy-loop fixes
+        # (PR #13334) were merged here (merge commit below), so we no longer need
+        # the fork. Camera redirection is a build option, enabled via config-opts.
+        commit: 023c2a6d44264fa3a74d7607755279d3ac575637
       # WITH_WEBVIEW normally git-clones this at configure time (fails in the
       # offline Flatpak build). Placed at external/webview, FreeRDP's CMake uses
       # it directly instead of fetching. (WebKitGTK comes from the runtime.)
