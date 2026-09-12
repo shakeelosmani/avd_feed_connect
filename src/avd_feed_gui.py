@@ -30,6 +30,7 @@ import urllib.parse
 import hashlib
 import base64
 import secrets
+import shlex
 import subprocess
 
 import gi
@@ -107,6 +108,7 @@ class AvdApp(Gtk.Application):
         self.status = None
         self._tiles = []            # GTK4 FlowBox has no get_children(); track ours
         self._signout_item = None
+        self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -115,6 +117,12 @@ class AvdApp(Gtk.Application):
             return
         self._build_ui()
         self.win.present()
+        # Client display scale (1 = standard, 2 = HiDPI) → drives the remote
+        # desktop scale so text isn't tiny on HiDPI nor huge on standard/ultrawide.
+        try:
+            self._scale = self.win.get_scale_factor() or 1
+        except Exception:
+            self._scale = 1
         # If we have previously discovered workspaces, show them immediately and
         # refresh the token + feed silently in the background (Windows-App-style
         # persistent session). Only a first run with no cache shows sign-in.
@@ -507,12 +515,19 @@ class AvdApp(Gtk.Application):
             return
         try:
             path = af.download_rdp(self.token, res)
-        except SystemExit as e:
+        except (SystemExit, Exception) as e:  # never let a write/HTTP error hang the tile
             child._launching = False
             self._error(str(e))
             self._set_tile_state(res["id"], "● Failed", "state-ended")
             return
         env = dict(os.environ)
+        # sdl-freerdp (SDL3) and FreeRDP's own AAD webview are unstable on native
+        # Wayland (#2: "Error 71 dispatching to Wayland display"). Force X11 /
+        # XWayland for the child, which is stable — and drop WAYLAND_DISPLAY so
+        # nothing in the subprocess re-selects Wayland.
+        env["GDK_BACKEND"] = "x11"
+        env["SDL_VIDEODRIVER"] = "x11"
+        env.pop("WAYLAND_DISPLAY", None)
         if af.SDL_LIBS and os.path.isdir(af.SDL_LIBS):
             env["LD_LIBRARY_PATH"] = af.SDL_LIBS + (
                 os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
@@ -522,8 +537,19 @@ class AvdApp(Gtk.Application):
         argv = [af.SDL, path, "/gateway:type:arm", "/sec:aad"]
         if af.UPN:
             argv.append(f"/u:{af.UPN}")
+        # Remote scale follows the client's display scale (HiDPI → 200%, standard/
+        # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
+        # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
+        scale = os.environ.get("AVD_SCALE") or str(100 * max(1, self._scale))
         argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
-                 "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
+                 "/f", "/dynamic-resolution", f"/scale-desktop:{scale}",
+                 "/log-level:info"]
+        extra = os.environ.get("AVD_EXTRA_ARGS", "").strip()
+        if extra:
+            try:
+                argv += shlex.split(extra)
+            except ValueError:
+                pass
         with open(logpath, "w") as log:
             proc = subprocess.Popen(argv, env=env, stdout=log,
                                     stderr=subprocess.STDOUT)

@@ -102,6 +102,16 @@ python3 src/avdfeed.py connect 0      # CLI: connect to resource 0
 Override the tenant/account with `AVD_TENANT` / `AVD_UPN`, and the client binary
 with `AVD_SDL_FREERDP`.
 
+### Connection tuning
+
+The remote desktop scale follows your display automatically (HiDPI → 200%,
+standard/ultrawide → 100%). To customize, set env vars (for the Flatpak, e.g.
+`flatpak override --user --env=AVD_SCALE=150 io.github.shakeelosmani.avd_feed_connect`):
+
+- `AVD_SCALE` — force a scale percentage, e.g. `100`, `150`, `200`.
+- `AVD_EXTRA_ARGS` — extra `sdl-freerdp` flags appended verbatim, e.g.
+  `"/multimon"` for multi-monitor, `"/gfx"`, etc.
+
 ## Status
 
 Early. Feed discovery, sign-in, the workspace grid, and connect are working. The

@@ -61,6 +61,14 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.2.1" date="2026-09-12">
+      <description>
+        <p>Connections now run over X11/XWayland to fix an immediate crash on
+        native Wayland. Remote scaling follows the display (HiDPI 200% /
+        standard 100%) instead of a fixed 200%; set AVD_SCALE or AVD_EXTRA_ARGS
+        (e.g. "/multimon") to customize.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-09-11">
       <description>
         <p>Rebuilt the UI on GTK4 with the modern WebKitGTK 6.0 engine. Fixes the
