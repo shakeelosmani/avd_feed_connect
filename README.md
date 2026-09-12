@@ -112,12 +112,30 @@ the compositor and sets the remote accordingly:
 - **Multi-monitor** follows your actual monitor count — one monitor → single
   fullscreen; two or more → the remote spans them (`/multimon`).
 
-Everything is overridable via environment variables. For the Flatpak, set them
-with `flatpak override`, e.g.:
+**Most people never need to touch this** — it auto-adapts. The settings below
+are only if you want to override the automatic choice.
+
+#### Setting an override — no terminal needed (Flatseal)
+
+The easiest way is [**Flatseal**](https://flathub.org/apps/com.github.tchx84.Flatseal),
+a graphical app for Flatpak settings:
+
+1. Install it from your software center (GNOME Software / KDE Discover — search
+   "Flatseal"), or run `flatpak install flathub com.github.tchx84.Flatseal`.
+2. Open **Flatseal** and pick **AVD Feed + Connect Linux** in the left list.
+3. Scroll to the **Environment** section and add a variable in the box, one per
+   line, as `NAME=VALUE` — for example `AVD_SCALE=150`.
+4. Close Flatseal. The change applies the next time you launch the app.
+
+#### Or from a terminal
 
 ```bash
 flatpak override --user --env=AVD_SCALE=150 io.github.shakeelosmani.avd_feed_connect
 ```
+
+Either way works — Flatseal and `flatpak override` write the same setting.
+
+#### The variables
 
 | Variable | Effect |
 |---|---|
