@@ -90,7 +90,7 @@ flatpak run io.github.shakeelosmani.avd_feed_connect
 
 ## Run unpackaged (development)
 
-The same code runs without Flatpak if you have PyGObject (Gtk 3.0, WebKit2 4.1)
+The same code runs without Flatpak if you have PyGObject (Gtk 4.0, WebKit 6.0)
 and an SDL3 `sdl-freerdp` on `PATH` (or at `~/opt/freerdp-sdl3-cam/bin/`):
 
 ```bash

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Windows-App-style desktop client for Azure Virtual Desktop on Linux.
 
-A GTK3 + WebKit2 front-end over the feed-discovery logic in avd-feed.py:
+A GTK4 + WebKitGTK 6.0 front-end over the feed-discovery logic in avdfeed.py:
   * in-app interactive sign-in (embedded WebKit view — the same auth-code+PKCE
     flow the native client uses, so Conditional Access lets it through; it
-    catches the …/oauth2/nativeclient?code=… redirect automatically, no paste)
+    catches the …/oauth2/nativeclient?code=… redirect automatically, no paste).
+    The modern WebKit engine renders federated org IdP pages (ADFS/Okta/Ping/…)
+    that the old WebKit2GTK 4.1 used to freeze on (issue #1).
   * a tiled workspace grid with the real per-resource icons from the feed
-  * double-click / Enter a tile to connect via the existing sdl-freerdp
-  * refresh + sign-out, and a system-tray icon (show / quit)
+  * double-click / Enter a tile to connect via the bundled sdl-freerdp
+  * persistent session (cached workspaces) + silent token refresh + sign out
 
 The connection itself is still sdl-freerdp with /gateway:type:arm /sec:aad, so
-camera/mic/gfx behave exactly as they do today. Nothing here touches the
-hand-made .rdpw launchers.
+camera/mic/gfx behave exactly as before.
 
-Deps (already present here): PyGObject with Gtk 3.0, WebKit2 4.1, GdkPixbuf,
-and AyatanaAppIndicator3 (tray, optional).
+Runtime: PyGObject with Gtk 4.0, WebKit 6.0, GdkPixbuf (all in the GNOME 49
+Flatpak runtime). No system-tray (GTK4 has no in-process tray; the GTK3
+AppIndicator can't be mixed into a GTK4 process).
 """
 
 import json
@@ -31,10 +33,10 @@ import secrets
 import subprocess
 
 import gi
-gi.require_version("Gtk", "3.0")
-gi.require_version("WebKit2", "4.1")
+gi.require_version("Gtk", "4.0")
+gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, GLib, GdkPixbuf, Gdk  # noqa: E402
-from gi.repository import WebKit2  # noqa: E402
+from gi.repository import WebKit  # noqa: E402
 
 # shared feed/auth logic lives next to this file (installed together)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,7 +44,6 @@ import avdfeed as af  # noqa: E402
 
 APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
-APP_ICON = APP_ID  # icon installed under the app-id name (Flatpak convention)
 
 # Persist the last discovered workspaces so reopening shows them instantly
 # (like the Windows App), instead of bouncing to sign-in on every launch.
@@ -80,9 +81,9 @@ def _bearer_bytes(url, token):
         return r.read()
 
 
-CSS = b"""
+CSS = """
 .tile { padding: 10px; border-radius: 10px; }
-.tile:hover { background: alpha(@theme_fg_color, 0.08); }
+.tile:hover { background: rgba(128,128,128,0.15); }
 .tile-title { font-weight: 600; margin-top: 6px; }
 .tile-sub { font-size: 90%; opacity: 0.6; }
 .status { padding: 6px 10px; opacity: 0.7; font-size: 90%; }
@@ -104,7 +105,8 @@ class AvdApp(Gtk.Application):
         self.stack = None
         self.grid = None
         self.status = None
-        self.indicator = None
+        self._tiles = []            # GTK4 FlowBox has no get_children(); track ours
+        self._signout_item = None
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -112,8 +114,7 @@ class AvdApp(Gtk.Application):
             self.win.present()
             return
         self._build_ui()
-        self._install_tray()
-        self.win.show_all()
+        self.win.present()
         # If we have previously discovered workspaces, show them immediately and
         # refresh the token + feed silently in the background (Windows-App-style
         # persistent session). Only a first run with no cache shows sign-in.
@@ -142,52 +143,51 @@ class AvdApp(Gtk.Application):
 
     def _build_ui(self):
         prov = Gtk.CssProvider()
-        prov.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        prov.load_from_string(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        Gtk.Window.set_default_icon_name(APP_ICON)
         self.win = Gtk.ApplicationWindow(application=self, title=APP_NAME)
         self.win.set_default_size(760, 560)
-        try:
-            self.win.set_icon_name(APP_ICON)
-        except Exception:
-            pass
 
-        hb = Gtk.HeaderBar(show_close_button=True, title=APP_NAME)
+        hb = Gtk.HeaderBar()
+        hb.set_title_widget(Gtk.Label(label=APP_NAME))
         self.win.set_titlebar(hb)
-        self.refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic",
-                                                         Gtk.IconSize.BUTTON)
+
+        self.refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
         self.refresh_btn.set_tooltip_text("Refresh workspaces")
         self.refresh_btn.connect("clicked", lambda *_: self._reload_feed())
         hb.pack_start(self.refresh_btn)
 
         menu_btn = Gtk.MenuButton()
-        menu_btn.set_image(Gtk.Image.new_from_icon_name("open-menu-symbolic",
-                                                        Gtk.IconSize.BUTTON))
-        menu = Gtk.Menu()
-        mi_out = Gtk.MenuItem(label="Sign out")
-        mi_out.connect("activate", lambda *_: self._sign_out())
-        mi_out.set_sensitive(False)  # nothing to sign out of until signed in
-        self._signout_item = mi_out
-        menu.append(mi_out)
-        menu.show_all()
-        menu_btn.set_popup(menu)
+        menu_btn.set_icon_name("open-menu-symbolic")
+        pop = Gtk.Popover()
+        pbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        pbox.set_margin_top(6); pbox.set_margin_bottom(6)
+        pbox.set_margin_start(6); pbox.set_margin_end(6)
+        signout = Gtk.Button(label="Sign out")
+        signout.add_css_class("flat")
+        signout.set_sensitive(False)  # nothing to sign out of until signed in
+        signout.connect("clicked", lambda *_: (pop.popdown(), self._sign_out()))
+        self._signout_item = signout
+        pbox.append(signout)
+        pop.set_child(pbox)
+        menu_btn.set_popover(pop)
         hb.pack_end(menu_btn)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self.win.add(self.stack)
+        self.win.set_child(self.stack)
 
         # sign-in page
         signin = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         signin.set_valign(Gtk.Align.CENTER)
         lbl = Gtk.Label(label="Sign in to see your workspaces")
         btn = Gtk.Button(label="Sign in")
-        btn.get_style_context().add_class("suggested-action")
+        btn.add_css_class("suggested-action")
         btn.set_halign(Gtk.Align.CENTER)
         btn.connect("clicked", lambda *_: self._interactive_signin())
-        signin.pack_start(lbl, False, False, 0)
-        signin.pack_start(btn, False, False, 0)
+        signin.append(lbl)
+        signin.append(btn)
         self.stack.add_named(signin, "signin")
 
         # workspaces page
@@ -202,47 +202,21 @@ class AvdApp(Gtk.Application):
         self.grid.set_margin_top(12); self.grid.set_margin_bottom(12)
         self.grid.set_margin_start(12); self.grid.set_margin_end(12)
         self.grid.connect("child-activated", self._on_tile_activated)
-        sw.add(self.grid)
-        wp.pack_start(sw, True, True, 0)
+        sw.set_child(self.grid)
+        wp.append(sw)
         self.status = Gtk.Label(label="", xalign=0)
-        self.status.get_style_context().add_class("status")
-        wp.pack_start(self.status, False, False, 0)
+        self.status.add_css_class("status")
+        wp.append(self.status)
         self.stack.add_named(wp, "workspaces")
 
         # busy page
         busy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         busy.set_valign(Gtk.Align.CENTER)
         sp = Gtk.Spinner(); sp.start()
-        busy.pack_start(sp, False, False, 0)
-        busy.pack_start(Gtk.Label(label="Loading…"), False, False, 0)
+        busy.append(sp)
+        busy.append(Gtk.Label(label="Loading…"))
         self.stack.add_named(busy, "busy")
         self.stack.set_visible_child_name("busy")
-
-    def _install_tray(self):
-        try:
-            gi.require_version("AyatanaAppIndicator3", "0.1")
-            from gi.repository import AyatanaAppIndicator3 as AppIndicator
-        except Exception:
-            return
-        ind = AppIndicator.Indicator.new(
-            APP_ID, APP_ICON,
-            AppIndicator.IndicatorCategory.APPLICATION_STATUS)
-        theme_dir = os.path.expanduser("~/.local/share/icons/hicolor")
-        if os.path.isdir(theme_dir):
-            try:
-                ind.set_icon_theme_path(theme_dir)
-            except Exception:
-                pass
-        ind.set_status(AppIndicator.IndicatorStatus.ACTIVE)
-        ind.set_title(APP_NAME)
-        m = Gtk.Menu()
-        mi_show = Gtk.MenuItem(label="Show workspaces")
-        mi_show.connect("activate", lambda *_: self.win.present())
-        mi_quit = Gtk.MenuItem(label="Quit")
-        mi_quit.connect("activate", lambda *_: self.quit())
-        m.append(mi_show); m.append(mi_quit); m.show_all()
-        ind.set_menu(m)
-        self.indicator = ind
 
     # ---- helpers (main thread) --------------------------------------------
     def _set_status(self, text):
@@ -252,7 +226,7 @@ class AvdApp(Gtk.Application):
         def apply():
             self.stack.set_visible_child_name(name)
             # "Sign out" only makes sense once we're signed in (workspaces view)
-            if getattr(self, "_signout_item", None) is not None:
+            if self._signout_item is not None:
                 self._signout_item.set_sensitive(name == "workspaces")
         GLib.idle_add(apply)
 
@@ -330,11 +304,11 @@ class AvdApp(Gtk.Application):
 
         dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
         dlg.set_default_size(520, 640)
-        wv = WebKit2.WebView()
-        dlg.add(wv)
+        wv = WebKit.WebView()
+        dlg.set_child(wv)
 
         def on_decide(view, decision, dtype):
-            if dtype != WebKit2.PolicyDecisionType.NAVIGATION_ACTION:
+            if dtype != WebKit.PolicyDecisionType.NAVIGATION_ACTION:
                 return False
             uri = decision.get_navigation_action().get_request().get_uri()
             if uri.startswith(af.REDIRECT) and "code=" in uri:
@@ -353,7 +327,7 @@ class AvdApp(Gtk.Application):
 
         wv.connect("decide-policy", on_decide)
         wv.load_uri(url)
-        dlg.show_all()
+        dlg.present()
 
     def _exchange(self, code, verifier):
         st, tok = af._post(af.LOGIN + "/token", {
@@ -382,8 +356,7 @@ class AvdApp(Gtk.Application):
         if self._refresh_source:
             GLib.source_remove(self._refresh_source)
             self._refresh_source = 0
-        for c in self.grid.get_children():
-            self.grid.remove(c)
+        self._clear_tiles()
         self._show("signin")
 
     # ---- feed -------------------------------------------------------------
@@ -416,16 +389,21 @@ class AvdApp(Gtk.Application):
         _save_ws_cache(resources)
         GLib.idle_add(self._populate, resources)
 
+    def _clear_tiles(self):
+        for ch in self._tiles:
+            self.grid.remove(ch)
+        self._tiles = []
+
     def _populate(self, resources):
-        for c in self.grid.get_children():
-            self.grid.remove(c)
+        self._clear_tiles()
         for res in resources:
-            self.grid.add(self._make_tile(res))
-        self.grid.show_all()
+            ch = self._make_tile(res)
+            self.grid.append(ch)
+            self._tiles.append(ch)
         who = af.UPN or "your account"
         self.status.set_text(f"{len(resources)} workspaces · signed in as {who}")
         self.stack.set_visible_child_name("workspaces")
-        if getattr(self, "_signout_item", None) is not None:
+        if self._signout_item is not None:
             self._signout_item.set_sensitive(True)
         # fetch icons in the background (needs a token; skipped for the cached
         # view before the silent refresh completes — icons fill in on refresh)
@@ -435,35 +413,35 @@ class AvdApp(Gtk.Application):
 
     def _make_tile(self, res):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        box.get_style_context().add_class("tile")
+        box.add_css_class("tile")
         img = Gtk.Image.new_from_icon_name(
-            "computer" if res["type"] == "Desktop" else "application-x-executable",
-            Gtk.IconSize.DIALOG)
+            "computer" if res["type"] == "Desktop" else "application-x-executable")
         img.set_pixel_size(64)
         title = Gtk.Label(label=res["title"])
-        title.get_style_context().add_class("tile-title")
-        title.set_line_wrap(True); title.set_justify(Gtk.Justification.CENTER)
+        title.add_css_class("tile-title")
+        title.set_wrap(True); title.set_justify(Gtk.Justification.CENTER)
         title.set_max_width_chars(16)
         sub = Gtk.Label(label=res["type"])
-        sub.get_style_context().add_class("tile-sub")
+        sub.add_css_class("tile-sub")
         state = Gtk.Label(label="")
-        state.get_style_context().add_class("tile-state")
-        state.set_no_show_all(True)  # stays hidden until there's a state
-        box.pack_start(img, False, False, 0)
-        box.pack_start(title, False, False, 0)
-        box.pack_start(sub, False, False, 0)
-        box.pack_start(state, False, False, 0)
+        state.add_css_class("tile-state")
+        state.set_visible(False)  # shown only when there's a state
+        box.append(img)
+        box.append(title)
+        box.append(sub)
+        box.append(state)
         child = Gtk.FlowBoxChild()
-        child.add(box)
+        child.set_child(box)
         child._res = res
         child._img = img
         child._state = state
         child._proc = None
+        child._launching = False
         child.set_tooltip_text(f"{res['title']} — {res['tenant']}")
         return child
 
     def _child_for(self, res_id):
-        for c in self.grid.get_children():
+        for c in self._tiles:
             if getattr(c, "_res", {}).get("id") == res_id:
                 return c
         return None
@@ -473,21 +451,19 @@ class AvdApp(Gtk.Application):
             ch = self._child_for(res_id)
             if not ch:
                 return
-            ctx = ch._state.get_style_context()
             for cls in ("state-connecting", "state-connected", "state-ended"):
-                ctx.remove_class(cls)
+                ch._state.remove_css_class(cls)
             if text:
                 if css:
-                    ctx.add_class(css)
+                    ch._state.add_css_class(css)
                 ch._state.set_text(text)
-                ch._state.show()
+                ch._state.set_visible(True)
             else:
-                ch._state.hide()
+                ch._state.set_visible(False)
         GLib.idle_add(apply)
 
     def _load_icons(self, resources):
-        # map id -> child for updating on the main thread
-        children = {c._res["id"]: c for c in self.grid.get_children()}
+        children = {c._res["id"]: c for c in self._tiles}
         for res in resources:
             url = res.get("icon32")
             if not url:
@@ -498,11 +474,12 @@ class AvdApp(Gtk.Application):
                 loader.write(data); loader.close()
                 pb = loader.get_pixbuf().scale_simple(64, 64,
                                                       GdkPixbuf.InterpType.BILINEAR)
+                tex = Gdk.Texture.new_for_pixbuf(pb)
             except Exception:
                 continue
             ch = children.get(res["id"])
             if ch:
-                GLib.idle_add(ch._img.set_from_pixbuf, pb)
+                GLib.idle_add(ch._img.set_from_paintable, tex)
 
     # ---- launch + live connection state -----------------------------------
     def _on_tile_activated(self, flowbox, child):
@@ -582,10 +559,10 @@ class AvdApp(Gtk.Application):
 
     def _error(self, msg):
         def show():
-            d = Gtk.MessageDialog(transient_for=self.win, modal=True,
-                                  message_type=Gtk.MessageType.ERROR,
-                                  buttons=Gtk.ButtonsType.OK, text=msg)
-            d.run(); d.destroy()
+            d = Gtk.AlertDialog()
+            d.set_modal(True)
+            d.set_message(msg)
+            d.show(self.win)
         GLib.idle_add(show)
 
 
