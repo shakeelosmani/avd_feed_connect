@@ -109,6 +109,7 @@ class AvdApp(Gtk.Application):
         self._tiles = []            # GTK4 FlowBox has no get_children(); track ours
         self._signout_item = None
         self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
+        self._n_monitors = 1        # how many monitors the compositor reports
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -117,12 +118,7 @@ class AvdApp(Gtk.Application):
             return
         self._build_ui()
         self.win.present()
-        # Client display scale (1 = standard, 2 = HiDPI) → drives the remote
-        # desktop scale so text isn't tiny on HiDPI nor huge on standard/ultrawide.
-        try:
-            self._scale = self.win.get_scale_factor() or 1
-        except Exception:
-            self._scale = 1
+        self._detect_displays()
         # If we have previously discovered workspaces, show them immediately and
         # refresh the token + feed silently in the background (Windows-App-style
         # persistent session). Only a first run with no cache shows sign-in.
@@ -134,6 +130,20 @@ class AvdApp(Gtk.Application):
         else:
             self._set_status("Signing in…")
             threading.Thread(target=self._silent_signin, daemon=True).start()
+
+    def _detect_displays(self):
+        """Read the client's real display layout from the compositor so the
+        remote session matches it automatically (like the Windows App does):
+        number of monitors → single vs multi-monitor, and the HiDPI scale."""
+        try:
+            self._scale = self.win.get_scale_factor() or 1
+        except Exception:
+            self._scale = 1
+        try:
+            mons = Gdk.Display.get_default().get_monitors()
+            self._n_monitors = max(1, mons.get_n_items())
+        except Exception:
+            self._n_monitors = 1
 
     def _background_refresh(self):
         """Silently refresh the token and re-fetch the feed, keeping the cached
@@ -540,15 +550,23 @@ class AvdApp(Gtk.Application):
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
         # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
-        scale = os.environ.get("AVD_SCALE") or str(100 * max(1, self._scale))
+        # --- auto display config (overridable) ---------------------------
+        # Scale follows the client's HiDPI factor (HiDPI 200% / standard 100%);
+        # multi-monitor follows the actual monitor count. Both can be overridden.
         extra = os.environ.get("AVD_EXTRA_ARGS", "").strip()
+        scale = os.environ.get("AVD_SCALE") or str(100 * max(1, self._scale))
         argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
                  "/f", f"/scale-desktop:{scale}", "/log-level:info"]
-        # Default to a single fullscreen monitor — otherwise a multi-head remote
-        # renders as a doubled/stacked desktop crammed into one screen. Opt into
-        # multi-monitor with AVD_EXTRA_ARGS="/multimon" (then we don't force it off).
-        if "/multimon" not in extra:
-            argv.append("-multimon")
+        mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
+        if mm in ("1", "on", "true", "yes"):
+            want_multimon = True
+        elif mm in ("0", "off", "false", "no"):
+            want_multimon = False
+        else:
+            want_multimon = self._n_monitors > 1   # auto: match the client
+        # Don't fight an explicit choice the user already put in AVD_EXTRA_ARGS.
+        if "multimon" not in extra:
+            argv.append("/multimon" if want_multimon else "-multimon")
         if extra:
             try:
                 argv += shlex.split(extra)

@@ -104,13 +104,30 @@ with `AVD_SDL_FREERDP`.
 
 ### Connection tuning
 
-The remote desktop scale follows your display automatically (HiDPI → 200%,
-standard/ultrawide → 100%). To customize, set env vars (for the Flatpak, e.g.
-`flatpak override --user --env=AVD_SCALE=150 io.github.shakeelosmani.avd_feed_connect`):
+The session **auto-adapts to your machine** — it reads your display layout from
+the compositor and sets the remote accordingly:
 
-- `AVD_SCALE` — force a scale percentage, e.g. `100`, `150`, `200`.
-- `AVD_EXTRA_ARGS` — extra `sdl-freerdp` flags appended verbatim, e.g.
-  `"/multimon"` for multi-monitor, `"/gfx"`, etc.
+- **Scale** follows your display's HiDPI factor — HiDPI (2×) → `200%`,
+  standard/ultrawide (1×) → `100%` — so text isn't tiny or huge.
+- **Multi-monitor** follows your actual monitor count — one monitor → single
+  fullscreen; two or more → the remote spans them (`/multimon`).
+
+Everything is overridable via environment variables. For the Flatpak, set them
+with `flatpak override`, e.g.:
+
+```bash
+flatpak override --user --env=AVD_SCALE=150 io.github.shakeelosmani.avd_feed_connect
+```
+
+| Variable | Effect |
+|---|---|
+| `AVD_SCALE` | Force the remote scale percentage (`100`, `125`, `150`, `200`, …). Overrides the auto HiDPI detection. |
+| `AVD_MULTIMON` | Force multi-monitor on (`1`/`on`) or off (`0`/`off`). Overrides the auto monitor-count detection. |
+| `AVD_EXTRA_ARGS` | Extra `sdl-freerdp` flags appended verbatim, e.g. `"/gfx"`, `"/network:auto"`, or your own `/multimon` / `-multimon` (which then wins over the auto choice). |
+| `AVD_SDL_FREERDP` | Path to the `sdl-freerdp` binary (defaults to the bundled one). |
+
+Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
+SDL client is unstable on native Wayland; this is automatic.
 
 ## Status
 
