@@ -50,6 +50,32 @@ APP_NAME = "AVD Feed + Connect Linux"
 # (like the Windows App), instead of bouncing to sign-in on every launch.
 WS_CACHE = os.path.join(os.path.dirname(af.CACHE), "workspaces.json")
 
+# In-app display/connection preferences (⋯ → Settings…). Environment variables,
+# if set, still override these for power users.
+SETTINGS_FILE = os.path.join(os.path.dirname(af.CACHE), "settings.json")
+SCALE_LABELS = ["Automatic (match display)", "100%", "125%", "150%",
+                "175%", "200%", "250%", "300%"]
+SCALE_VALUES = ["auto", "100", "125", "150", "175", "200", "250", "300"]
+MULTIMON_LABELS = ["Automatic (match monitors)", "Single monitor", "All monitors"]
+MULTIMON_VALUES = ["auto", "off", "on"]
+
+
+def _load_settings():
+    try:
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_settings(d):
+    try:
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(d, f)
+    except OSError:
+        pass
+
 
 def _save_ws_cache(resources):
     try:
@@ -110,6 +136,7 @@ class AvdApp(Gtk.Application):
         self._signout_item = None
         self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
         self._n_monitors = 1        # how many monitors the compositor reports
+        self._settings = _load_settings()   # {"_default": {...}, "<res id>": {...}}
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -183,6 +210,11 @@ class AvdApp(Gtk.Application):
         pbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         pbox.set_margin_top(6); pbox.set_margin_bottom(6)
         pbox.set_margin_start(6); pbox.set_margin_end(6)
+        setbtn = Gtk.Button(label="Default settings…")
+        setbtn.add_css_class("flat")
+        setbtn.connect("clicked", lambda *_: (pop.popdown(), self._open_settings(None)))
+        pbox.append(setbtn)
+        pbox.append(Gtk.Separator())
         signout = Gtk.Button(label="Sign out")
         signout.add_css_class("flat")
         signout.set_sensitive(False)  # nothing to sign out of until signed in
@@ -455,7 +487,14 @@ class AvdApp(Gtk.Application):
         child._state = state
         child._proc = None
         child._launching = False
-        child.set_tooltip_text(f"{res['title']} — {res['tenant']}")
+        child.set_tooltip_text(
+            f"{res['title']} — {res['tenant']}\nDouble-click to connect · "
+            f"right-click for this workspace's settings")
+        # Right-click a tile → per-workspace display settings (remembered per id)
+        rclick = Gtk.GestureClick()
+        rclick.set_button(3)  # secondary button
+        rclick.connect("pressed", lambda g, n, x, y, r=res: self._open_settings(r))
+        child.add_controller(rclick)
         return child
 
     def _child_for(self, res_id):
@@ -550,11 +589,10 @@ class AvdApp(Gtk.Application):
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
         # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
-        # --- auto display config (overridable) ---------------------------
-        # Scale follows the client's HiDPI factor (HiDPI 200% / standard 100%);
-        # multi-monitor follows the actual monitor count. Both can be overridden.
-        extra = os.environ.get("AVD_EXTRA_ARGS", "").strip()
-        scale = os.environ.get("AVD_SCALE") or str(100 * max(1, self._scale))
+        # --- display config: env var > per-resource/default setting > auto ---
+        extra = self._eff_extra(res)
+        scale = os.environ.get("AVD_SCALE") or self._eff("scale", res) \
+            or str(100 * max(1, self._scale))
         argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
                  "/f", f"/scale-desktop:{scale}", "/log-level:info"]
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
@@ -563,8 +601,9 @@ class AvdApp(Gtk.Application):
         elif mm in ("0", "off", "false", "no"):
             want_multimon = False
         else:
-            want_multimon = self._n_monitors > 1   # auto: match the client
-        # Don't fight an explicit choice the user already put in AVD_EXTRA_ARGS.
+            setting = self._eff("multimon", res)      # "on"/"off"/None
+            want_multimon = (setting == "on") if setting else (self._n_monitors > 1)
+        # Don't fight an explicit choice already present in the extra flags.
         if "multimon" not in extra:
             argv.append("/multimon" if want_multimon else "-multimon")
         if extra:
@@ -604,6 +643,95 @@ class AvdApp(Gtk.Application):
         # clear the label after a short while
         GLib.timeout_add_seconds(
             6, lambda: (self._set_tile_state(res["id"], "", None), False)[1])
+
+    # ---- per-resource settings -------------------------------------------
+    def _eff(self, key, res):
+        """Resolve a setting: per-resource value → global default → None(=auto)."""
+        rv = self._settings.get(res["id"], {}).get(key, "auto")
+        if rv and rv != "auto":
+            return rv
+        dv = self._settings.get("_default", {}).get(key, "auto")
+        if dv and dv != "auto":
+            return dv
+        return None
+
+    def _eff_extra(self, res):
+        parts = [self._settings.get("_default", {}).get("extra_args", ""),
+                 self._settings.get(res["id"], {}).get("extra_args", ""),
+                 os.environ.get("AVD_EXTRA_ARGS", "")]
+        return " ".join(p.strip() for p in parts if p and p.strip()).strip()
+
+    def _form_row(self, label, widget):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        lbl = Gtk.Label(label=label, xalign=0)
+        lbl.set_hexpand(True)
+        widget.set_halign(Gtk.Align.END)
+        row.append(lbl)
+        row.append(widget)
+        return row
+
+    def _open_settings(self, res):
+        key = res["id"] if res else "_default"
+        cur = self._settings.get(key, {})
+        title = f"Settings — {res['title']}" if res else "Default connection settings"
+        auto_note = ("Automatic uses your Default settings, then the display."
+                     if res else "Automatic matches your display and monitors.")
+
+        dlg = Gtk.Window(title=title, transient_for=self.win, modal=True)
+        dlg.set_default_size(440, -1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{m}")(16)
+
+        scale_dd = Gtk.DropDown(model=Gtk.StringList.new(SCALE_LABELS))
+        sv = cur.get("scale", "auto")
+        scale_dd.set_selected(SCALE_VALUES.index(sv) if sv in SCALE_VALUES else 0)
+        box.append(self._form_row("Display scale", scale_dd))
+
+        mm_dd = Gtk.DropDown(model=Gtk.StringList.new(MULTIMON_LABELS))
+        mv = cur.get("multimon", "auto")
+        mm_dd.set_selected(MULTIMON_VALUES.index(mv) if mv in MULTIMON_VALUES else 0)
+        box.append(self._form_row("Monitors", mm_dd))
+
+        extra_entry = Gtk.Entry()
+        extra_entry.set_text(cur.get("extra_args", ""))
+        extra_entry.set_placeholder_text("advanced: e.g. /gfx /network:auto")
+        extra_entry.set_hexpand(True)
+        box.append(self._form_row("Advanced flags", extra_entry))
+
+        note = Gtk.Label(label=auto_note + " Applies to your next connection.",
+                         xalign=0, wrap=True)
+        note.add_css_class("tile-sub")
+        box.append(note)
+
+        btnbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btnbox.set_halign(Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda *_: dlg.destroy())
+        save = Gtk.Button(label="Save")
+        save.add_css_class("suggested-action")
+
+        def do_save(*_):
+            entry = {
+                "scale": SCALE_VALUES[scale_dd.get_selected()],
+                "multimon": MULTIMON_VALUES[mm_dd.get_selected()],
+                "extra_args": extra_entry.get_text().strip(),
+            }
+            # drop an all-default entry so the file stays tidy
+            if entry["scale"] == "auto" and entry["multimon"] == "auto" \
+                    and not entry["extra_args"]:
+                self._settings.pop(key, None)
+            else:
+                self._settings[key] = entry
+            _save_settings(self._settings)
+            dlg.destroy()
+            self._set_status("Settings saved — applies to your next connection")
+        save.connect("clicked", do_save)
+        btnbox.append(cancel)
+        btnbox.append(save)
+        box.append(btnbox)
+        dlg.set_child(box)
+        dlg.present()
 
     def _error(self, msg):
         def show():

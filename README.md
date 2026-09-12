@@ -112,28 +112,33 @@ the compositor and sets the remote accordingly:
 - **Multi-monitor** follows your actual monitor count — one monitor → single
   fullscreen; two or more → the remote spans them (`/multimon`).
 
-**Most people never need to touch this** — it auto-adapts. The settings below
-are only if you want to override the automatic choice.
+**Most people never need to touch this** — it auto-adapts. If you do want to
+override it, the easiest way is right inside the app.
 
-#### Setting an override — no terminal needed (Flatseal)
+#### In-app settings (no terminal, remembered per workspace)
 
-The easiest way is [**Flatseal**](https://flathub.org/apps/com.github.tchx84.Flatseal),
-a graphical app for Flatpak settings:
+- **Per workspace:** right-click a workspace tile → set its **Display scale**,
+  **Monitors** (single / all / automatic), and any **Advanced flags**. These are
+  remembered per resource, so a RemoteApp and a full Desktop can differ.
+- **Defaults for everything:** the **⋯ menu → Default settings…** sets the
+  fallback used by any workspace left on "Automatic".
 
-1. Install it from your software center (GNOME Software / KDE Discover — search
-   "Flatseal"), or run `flatpak install flathub com.github.tchx84.Flatseal`.
-2. Open **Flatseal** and pick **AVD Feed + Connect Linux** in the left list.
-3. Scroll to the **Environment** section and add a variable in the box, one per
-   line, as `NAME=VALUE` — for example `AVD_SCALE=150`.
-4. Close Flatseal. The change applies the next time you launch the app.
+Precedence is: a workspace's own setting → your Default settings → automatic
+detection. (Environment variables, below, override even these — for scripting.)
 
-#### Or from a terminal
+#### Advanced: environment-variable overrides
+
+These are for power users / scripting and win over the in-app settings. Set them
+graphically (no terminal) with [**Flatseal**](https://flathub.org/apps/com.github.tchx84.Flatseal):
+install it from your software center (search "Flatseal"), pick **AVD Feed +
+Connect Linux**, open the **Environment** section, and add a line like
+`AVD_SCALE=150`. Or from a terminal:
 
 ```bash
 flatpak override --user --env=AVD_SCALE=150 io.github.shakeelosmani.avd_feed_connect
 ```
 
-Either way works — Flatseal and `flatpak override` write the same setting.
+Both methods write the same setting.
 
 #### The variables
 

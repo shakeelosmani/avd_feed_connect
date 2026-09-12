@@ -61,6 +61,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.0" date="2026-09-12">
+      <description>
+        <p>New in-app Settings — right-click a workspace to set its display scale
+        and single/multi-monitor (remembered per workspace), or set defaults from
+        the menu. No terminal needed. Auto-detection remains the default.</p>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-09-12">
       <description>
         <p>The session now auto-adapts to your machine like the official clients:
