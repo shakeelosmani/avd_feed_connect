@@ -61,6 +61,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.2.2" date="2026-09-12">
+      <description>
+        <p>Fix a doubled/stacked desktop on some setups: connections default to a
+        single fullscreen monitor again. Enable multi-monitor with
+        AVD_EXTRA_ARGS="/multimon".</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-09-12">
       <description>
         <p>Connections now run over X11/XWayland to fix an immediate crash on

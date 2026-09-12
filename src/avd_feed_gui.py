@@ -541,10 +541,14 @@ class AvdApp(Gtk.Application):
         # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
         scale = os.environ.get("AVD_SCALE") or str(100 * max(1, self._scale))
-        argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
-                 "/f", "/dynamic-resolution", f"/scale-desktop:{scale}",
-                 "/log-level:info"]
         extra = os.environ.get("AVD_EXTRA_ARGS", "").strip()
+        argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
+                 "/f", f"/scale-desktop:{scale}", "/log-level:info"]
+        # Default to a single fullscreen monitor — otherwise a multi-head remote
+        # renders as a doubled/stacked desktop crammed into one screen. Opt into
+        # multi-monitor with AVD_EXTRA_ARGS="/multimon" (then we don't force it off).
+        if "/multimon" not in extra:
+            argv.append("-multimon")
         if extra:
             try:
                 argv += shlex.split(extra)
