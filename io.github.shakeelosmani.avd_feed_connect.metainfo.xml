@@ -61,6 +61,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.1" date="2026-09-12">
+      <description>
+        <p>Fix an instant disconnect on Wayland sessions: the sandbox now grants
+        the real X11 socket, which the X11-forced connection needs (the previous
+        fallback-x11 didn't provide it under Wayland).</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-09-12">
       <description>
         <p>New in-app Settings — right-click a workspace to set its display scale

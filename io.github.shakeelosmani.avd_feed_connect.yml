@@ -18,7 +18,10 @@ command: avd-feed-connect
 finish-args:
   - --share=network                 # feed discovery, AAD sign-in, RDP gateway
   - --share=ipc
-  - --socket=fallback-x11
+  # Grant the real X11 socket (not fallback-x11): connections force GDK_BACKEND=x11
+  # for sdl-freerdp's stability, so the X11/XWayland socket must be available even
+  # on a Wayland host (fallback-x11 exposes it only when there is no Wayland).
+  - --socket=x11
   - --socket=wayland
   - --socket=pulseaudio             # RDP audio playback + microphone redirect
   - --device=dri                    # GPU for the RDP graphics pipeline
