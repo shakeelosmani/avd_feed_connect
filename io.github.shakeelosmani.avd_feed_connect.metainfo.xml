@@ -61,6 +61,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.2" date="2026-09-13">
+      <description>
+        <p>Fix a blank sign-in window when connecting on some GPUs/drivers
+        (WebKit DMABUF/GBM failure) by using software compositing for the
+        connection's login page, which was blocking authentication.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-09-12">
       <description>
         <p>Fix an instant disconnect on Wayland sessions: the sandbox now grants

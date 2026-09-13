@@ -36,7 +36,7 @@ import subprocess
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gtk, GLib, GdkPixbuf, Gdk  # noqa: E402
+from gi.repository import Gtk, GLib, Gdk  # noqa: E402
 from gi.repository import WebKit  # noqa: E402
 
 # shared feed/auth logic lives next to this file (installed together)
@@ -527,11 +527,9 @@ class AvdApp(Gtk.Application):
                 continue
             try:
                 data = _bearer_bytes(url, self.token)
-                loader = GdkPixbuf.PixbufLoader.new_with_type("png")
-                loader.write(data); loader.close()
-                pb = loader.get_pixbuf().scale_simple(64, 64,
-                                                      GdkPixbuf.InterpType.BILINEAR)
-                tex = Gdk.Texture.new_for_pixbuf(pb)
+                # Load the PNG straight into a GdkTexture (the Image scales it to
+                # its pixel size); avoids the deprecated new_for_pixbuf path.
+                tex = Gdk.Texture.new_from_bytes(GLib.Bytes.new(data))
             except Exception:
                 continue
             ch = children.get(res["id"])
@@ -577,6 +575,11 @@ class AvdApp(Gtk.Application):
         env["GDK_BACKEND"] = "x11"
         env["SDL_VIDEODRIVER"] = "x11"
         env.pop("WAYLAND_DISPLAY", None)
+        # FreeRDP's AAD-login webview (WebKitGTK) renders blank when its DMABUF/GBM
+        # path fails ("Failed to create GBM buffer … Invalid argument"), which then
+        # blocks token acquisition (ERRCONNECT_ACCESS_DENIED). Disable the DMABUF
+        # renderer so the login page always draws (software compositing fallback).
+        env["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
         if af.SDL_LIBS and os.path.isdir(af.SDL_LIBS):
             env["LD_LIBRARY_PATH"] = af.SDL_LIBS + (
                 os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
