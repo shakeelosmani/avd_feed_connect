@@ -9,13 +9,18 @@ A GTK4 + WebKitGTK 6.0 front-end over the feed-discovery logic in avdfeed.py:
     that the old WebKit2GTK 4.1 used to freeze on (issue #1).
   * a tiled workspace grid with the real per-resource icons from the feed
   * double-click / Enter a tile to connect via the bundled sdl-freerdp
-  * persistent session (cached workspaces) + silent token refresh + sign out
+  * persistent session (cached workspaces + icons) + silent token refresh +
+    sign out. When the tenant's Conditional Access sign-in frequency rejects
+    the refresh (AADSTS70043, "every time" = 5 min), the saved grid stays,
+    the status says why, and connecting re-authenticates the known account
+    directly (login_hint + domain_hint + msafed=0: no account picker, no
+    "work or personal?" page) and then connects on its own.
 
 The connection itself is still sdl-freerdp with /gateway:type:arm /sec:aad, so
 camera/mic/gfx behave exactly as before.
 
-Runtime: PyGObject with Gtk 4.0, WebKit 6.0, GdkPixbuf (all in the GNOME 49
-Flatpak runtime). No system-tray (GTK4 has no in-process tray; the GTK3
+Runtime: PyGObject with Gtk 4.0, WebKit 6.0 (all in the GNOME 49 Flatpak
+runtime). No system-tray (GTK4 has no in-process tray; the GTK3
 AppIndicator can't be mixed into a GTK4 process).
 """
 
@@ -31,6 +36,7 @@ import hashlib
 import base64
 import secrets
 import shlex
+import shutil
 import subprocess
 
 import gi
@@ -49,6 +55,13 @@ APP_NAME = "AVD Feed + Connect Linux"
 # Persist the last discovered workspaces so reopening shows them instantly
 # (like the Windows App), instead of bouncing to sign-in on every launch.
 WS_CACHE = os.path.join(os.path.dirname(af.CACHE), "workspaces.json")
+# Per-resource icon PNGs, so the saved workspace view looks exactly like the
+# live one even before (or without) a fresh token — like the Windows App.
+ICON_DIR = os.path.join(os.path.dirname(af.CACHE), "icons")
+
+
+def _icon_path(res_id):
+    return os.path.join(ICON_DIR, _re.sub(r"[^A-Za-z0-9_.-]", "_", res_id) + ".png")
 
 # In-app display/connection preferences (⋯ → Settings…). Environment variables,
 # if set, still override these for power users.
@@ -137,6 +150,8 @@ class AvdApp(Gtk.Application):
         self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
         self._n_monitors = 1        # how many monitors the compositor reports
         self._settings = _load_settings()   # {"_default": {...}, "<res id>": {...}}
+        self._pending_launch = None  # resource id to connect to once sign-in completes
+        self._signin_dlg = None      # the open sign-in window, if any
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -176,7 +191,7 @@ class AvdApp(Gtk.Application):
         """Silently refresh the token and re-fetch the feed, keeping the cached
         workspaces on screen if it fails (never auto-bounces to sign-in)."""
         if not self._do_refresh(silent=True):
-            self._set_status("Showing saved workspaces · sign in again to refresh")
+            self._set_status(self._refresh_failed_status())
             return
         try:
             resources = af.enumerate_feed(self.token)
@@ -338,7 +353,20 @@ class AvdApp(Gtk.Application):
             return
         self._show("signin")
 
+    def _refresh_failed_status(self):
+        """Status-bar text for a failed silent refresh, naming the real cause
+        when it's the tenant's Conditional Access sign-in-frequency policy
+        (AADSTS70043) rather than anything the app can fix."""
+        err = af.LAST_REFRESH_ERROR
+        if "AADSTS70043" in err or "sign-in frequency" in err:
+            return ("Showing saved workspaces · your organization requires signing "
+                    "in again (Conditional Access sign-in frequency)")
+        return "Showing saved workspaces · sign in again to refresh"
+
     def _interactive_signin(self):
+        if self._signin_dlg is not None:      # already open — just raise it
+            self._signin_dlg.present()
+            return
         verifier = af._b64url(secrets.token_bytes(64))
         challenge = af._b64url(hashlib.sha256(verifier.encode()).digest())
         state = secrets.token_urlsafe(16)
@@ -346,16 +374,37 @@ class AvdApp(Gtk.Application):
             "client_id": af.CLIENT_ID, "response_type": "code",
             "redirect_uri": af.REDIRECT, "scope": af.SCOPE,
             "code_challenge": challenge, "code_challenge_method": "S256",
-            "state": state, "prompt": "select_account",
+            "state": state,
+            # Work accounts only (we use the /organizations authority): stops
+            # Entra asking "work or personal account?" when the same email also
+            # exists as a personal Microsoft account.
+            "msafed": "0",
         }
         if af.UPN:
+            # Re-authenticating a known account (e.g. Conditional Access made
+            # the session lapse): go straight to that account's password/MFA
+            # page — no account picker, no home-realm discovery.
             params["login_hint"] = af.UPN
+            dom = af.UPN.rpartition("@")[2]
+            if dom and "#" not in dom:
+                params["domain_hint"] = dom
+        else:
+            # First run / after Sign out: let the user pick the account.
+            params["prompt"] = "select_account"
         url = af.LOGIN + "/authorize?" + urllib.parse.urlencode(params)
 
         dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
         dlg.set_default_size(520, 640)
         wv = WebKit.WebView()
         dlg.set_child(wv)
+        self._signin_dlg = dlg
+        got_code = [False]
+
+        def on_closed(*_):
+            self._signin_dlg = None
+            if not got_code[0]:
+                self._pending_launch = None   # user gave up; don't auto-connect later
+        dlg.connect("destroy", on_closed)
 
         def on_decide(view, decision, dtype):
             if dtype != WebKit.PolicyDecisionType.NAVIGATION_ACTION:
@@ -364,8 +413,10 @@ class AvdApp(Gtk.Application):
             if uri.startswith(af.REDIRECT) and "code=" in uri:
                 decision.ignore()
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(uri).query)
+                got_code[0] = True
                 dlg.destroy()
                 if qs.get("state", [state])[0] != state:
+                    self._pending_launch = None
                     self._error("Sign-in state mismatch, please retry.")
                     return True
                 code = qs.get("code", [""])[0]
@@ -385,11 +436,12 @@ class AvdApp(Gtk.Application):
             "code": code, "redirect_uri": af.REDIRECT, "scope": af.SCOPE,
             "code_verifier": verifier})
         if st != 200:
+            self._pending_launch = None
             self._error("Sign-in failed: " + tok.get("error_description", tok.get("error", "?")))
             self._show("signin")
             return
         self._apply_token(tok)
-        self._load_feed_bg()
+        self._load_feed_bg()   # _populate then auto-connects any pending workspace
 
     def _sign_out(self):
         # Manual sign-out is the ONLY thing that clears the session + workspaces.
@@ -399,6 +451,8 @@ class AvdApp(Gtk.Application):
                     os.remove(p)
             except OSError:
                 pass
+        shutil.rmtree(ICON_DIR, ignore_errors=True)
+        self._pending_launch = None
         af.UPN = "" if not os.environ.get("AVD_UPN") else af.UPN
         with self._token_lock:
             self.token = None
@@ -412,6 +466,7 @@ class AvdApp(Gtk.Application):
     # ---- feed -------------------------------------------------------------
     def _reload_feed(self):
         if not self.token:
+            self._interactive_signin()   # e.g. saved view whose refresh was refused
             return
         self._show("busy")
         self._load_feed_bg()
@@ -431,6 +486,7 @@ class AvdApp(Gtk.Application):
         except Exception as e:
             # Keep whatever is on screen if we have a cached list; only a first
             # run with nothing to show falls back to the sign-in page.
+            self._pending_launch = None
             if have_cache:
                 self._set_status("Couldn't refresh workspaces — showing saved list")
             else:
@@ -455,11 +511,16 @@ class AvdApp(Gtk.Application):
         self.stack.set_visible_child_name("workspaces")
         if self._signout_item is not None:
             self._signout_item.set_sensitive(True)
-        # fetch icons in the background (needs a token; skipped for the cached
-        # view before the silent refresh completes — icons fill in on refresh)
-        if self.token:
-            threading.Thread(target=self._load_icons, args=(resources,),
-                             daemon=True).start()
+        # Icons: cached PNGs show immediately; with a token they're re-fetched
+        # (and re-cached) in the background so the grid never looks "reset".
+        threading.Thread(target=self._load_icons, args=(resources,),
+                         daemon=True).start()
+        # A connect that had to wait for sign-in resumes now, on the fresh tiles
+        pending, self._pending_launch = self._pending_launch, None
+        if pending:
+            ch = self._child_for(pending)
+            if ch:
+                self._on_tile_activated(self.grid, ch)
 
     def _make_tile(self, res):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -521,12 +582,28 @@ class AvdApp(Gtk.Application):
 
     def _load_icons(self, resources):
         children = {c._res["id"]: c for c in self._tiles}
+        token = self.token
         for res in resources:
             url = res.get("icon32")
             if not url:
                 continue
+            path = _icon_path(res["id"])
+            data = None
+            if token:
+                try:
+                    data = _bearer_bytes(url, token)
+                    os.makedirs(ICON_DIR, exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(data)
+                except Exception:
+                    data = None
+            if data is None:            # no token, or the fetch failed → cache
+                try:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                except OSError:
+                    continue
             try:
-                data = _bearer_bytes(url, self.token)
                 # Load the PNG straight into a GdkTexture (the Image scales it to
                 # its pixel size); avoids the deprecated new_for_pixbuf path.
                 tex = Gdk.Texture.new_from_bytes(GLib.Bytes.new(data))
@@ -558,6 +635,7 @@ class AvdApp(Gtk.Application):
             child._launching = False
             self._set_tile_state(res["id"], "", None)
             self._set_status("Sign in to connect")
+            self._pending_launch = res["id"]   # connect automatically afterwards
             GLib.idle_add(self._interactive_signin)
             return
         try:

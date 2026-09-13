@@ -152,6 +152,30 @@ Both methods write the same setting.
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.
 
+## Signing in — and why you might be asked again
+
+The app keeps you signed in the way the Windows App does: your workspaces (and
+their icons) are saved and shown instantly on launch, and the access token is
+renewed silently in the background with the refresh token. Normally you only
+see the sign-in page on first run or after **⋯ → Sign out**.
+
+If you are instead asked to sign in **every time** you open the app or connect,
+that is your organization's **Conditional Access sign-in frequency** policy,
+not the app. The tell-tales are the status bar ("your organization requires
+signing in again (Conditional Access sign-in frequency)") and, in a terminal,
+`token refresh failed … AADSTS70043 … maximum allowed lifetime for this request
+is 300` — Entra refuses to renew the Azure Virtual Desktop token unless you
+signed in within the last *N* minutes (300 s is the "Every time" setting). No
+client can renew silently under that rule; the official clients usually avoid
+the prompt only because the policy excludes managed/compliant devices, which a
+Linux machine typically isn't. Your admin can see which policy fired under
+Entra → Sign-in logs.
+
+The app makes that as painless as it can: the saved workspaces stay on screen,
+re-signing in goes straight to your account's password/MFA page (no account
+picker, no "work or personal account?" question), and the workspace you
+double-clicked connects on its own once you're back in.
+
 ## Status
 
 Early. Feed discovery, sign-in, the workspace grid, and connect are working. The

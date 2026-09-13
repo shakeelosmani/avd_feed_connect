@@ -61,6 +61,16 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.3" date="2026-09-13">
+      <description>
+        <p>Faster re-sign-in: a known account goes straight to its password/MFA
+        page (no account picker, no "work or personal account?" question), and
+        the workspace you double-clicked connects automatically afterwards.
+        Workspace icons are now saved, so the grid looks complete on launch.
+        When a Conditional Access sign-in-frequency policy refuses the silent
+        token refresh, the status bar now says so.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-09-13">
       <description>
         <p>Fix a blank sign-in window when connecting on some GPUs/drivers

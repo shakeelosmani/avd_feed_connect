@@ -218,12 +218,22 @@ def _device_code():
                  f"{tok.get('error_description','')[:300]}")
 
 
+# Why the last silent refresh failed (AADSTS code + description), so the GUI
+# can tell the user the real reason instead of a generic "sign in again".
+LAST_REFRESH_ERROR = ""
+
+
 def _refresh(rt):
+    global LAST_REFRESH_ERROR
     st, tok = _post(LOGIN + "/token", {
         "grant_type": "refresh_token", "client_id": CLIENT_ID,
         "scope": SCOPE, "refresh_token": rt})
     if st != 200:
+        LAST_REFRESH_ERROR = f"{tok.get('error', '?')}: {tok.get('error_description', '')}"
+        print(f"token refresh failed (HTTP {st}) {LAST_REFRESH_ERROR[:300]}",
+              file=sys.stderr)
         return None
+    LAST_REFRESH_ERROR = ""
     return tok
 
 
