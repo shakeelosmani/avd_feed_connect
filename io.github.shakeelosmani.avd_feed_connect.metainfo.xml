@@ -61,6 +61,17 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.4" date="2026-09-15">
+      <description>
+        <p>Fix sign-in problems introduced in 0.3.3 on some organizations: the
+        window could hang on a blank "Trying to sign you in" page (Azure AD
+        Seamless SSO, which needs Windows Kerberos and can't complete on Linux),
+        or hit a "Keep your account secure" error. Sign-in returns to the
+        reliable account-picker flow, which avoids both. Your saved workspaces
+        and icons still appear instantly, and the workspace you double-clicked
+        still connects on its own after you sign in.</p>
+      </description>
+    </release>
     <release version="0.3.3" date="2026-09-13">
       <description>
         <p>Faster re-sign-in: a known account goes straight to its password/MFA

@@ -12,9 +12,9 @@ A GTK4 + WebKitGTK 6.0 front-end over the feed-discovery logic in avdfeed.py:
   * persistent session (cached workspaces + icons) + silent token refresh +
     sign out. When the tenant's Conditional Access sign-in frequency rejects
     the refresh (AADSTS70043, "every time" = 5 min), the saved grid stays,
-    the status says why, and connecting re-authenticates the known account
-    directly (login_hint + domain_hint + msafed=0: no account picker, no
-    "work or personal?" page) and then connects on its own.
+    the status says why, and connecting re-authenticates (account picker,
+    prompt=select_account — the flow that works everywhere, including tenants
+    with Seamless SSO) and then connects on its own.
 
 The connection itself is still sdl-freerdp with /gateway:type:arm /sec:aad, so
 camera/mic/gfx behave exactly as before.
@@ -370,27 +370,22 @@ class AvdApp(Gtk.Application):
         verifier = af._b64url(secrets.token_bytes(64))
         challenge = af._b64url(hashlib.sha256(verifier.encode()).digest())
         state = secrets.token_urlsafe(16)
+        # Always show the account picker (prompt=select_account). It is the
+        # known-good flow: it bypasses Azure AD Seamless SSO — which needs a
+        # Windows Kerberos ticket and, on Linux, hangs the webview forever on
+        # "Trying to sign you in" — and it does NOT force the full interactive
+        # re-login that makes tenants inject a security-info registration
+        # interrupt ("Keep your account secure"). Trying to save the one picker
+        # click (login_hint without a prompt, or prompt=login) reintroduced
+        # both of those bugs, so we don't.
         params = {
             "client_id": af.CLIENT_ID, "response_type": "code",
             "redirect_uri": af.REDIRECT, "scope": af.SCOPE,
             "code_challenge": challenge, "code_challenge_method": "S256",
-            "state": state,
-            # Work accounts only (we use the /organizations authority): stops
-            # Entra asking "work or personal account?" when the same email also
-            # exists as a personal Microsoft account.
-            "msafed": "0",
+            "state": state, "prompt": "select_account",
         }
         if af.UPN:
-            # Re-authenticating a known account (e.g. Conditional Access made
-            # the session lapse): go straight to that account's password/MFA
-            # page — no account picker, no home-realm discovery.
-            params["login_hint"] = af.UPN
-            dom = af.UPN.rpartition("@")[2]
-            if dom and "#" not in dom:
-                params["domain_hint"] = dom
-        else:
-            # First run / after Sign out: let the user pick the account.
-            params["prompt"] = "select_account"
+            params["login_hint"] = af.UPN   # preselect the known account in the picker
         url = af.LOGIN + "/authorize?" + urllib.parse.urlencode(params)
 
         dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
