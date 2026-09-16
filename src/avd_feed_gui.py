@@ -38,6 +38,8 @@ import secrets
 import shlex
 import shutil
 import subprocess
+import pty
+import select
 
 # Software-composite WebKit (our sign-in webview) instead of the DMABUF/GBM
 # GPU path. That path fails to allocate a GBM buffer on some GPUs/drivers
@@ -138,6 +140,9 @@ CSS = """
 .state-connecting { color: #e08a00; }
 .state-connected { color: #2ea043; font-weight: 600; }
 .state-ended { opacity: 0.5; }
+.connect-card { background: rgba(20,20,20,0.72); border-radius: 16px;
+                padding: 28px 44px; }
+.connect-label { color: #ffffff; font-size: 15px; margin-top: 4px; }
 """
 
 
@@ -159,6 +164,8 @@ class AvdApp(Gtk.Application):
         self._settings = _load_settings()   # {"_default": {...}, "<res id>": {...}}
         self._pending_launch = None  # resource id to connect to once sign-in completes
         self._signin_dlg = None      # the open sign-in window, if any
+        self._web_session_obj = None  # shared persistent WebKit session (SSO cookies)
+        self._connecting = set()      # resource ids currently establishing a session
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -275,7 +282,27 @@ class AvdApp(Gtk.Application):
         self.grid.set_margin_start(12); self.grid.set_margin_end(12)
         self.grid.connect("child-activated", self._on_tile_activated)
         sw.set_child(self.grid)
-        wp.append(sw)
+        # Connecting overlay: a centered spinner + label shown over the grid
+        # while a session is establishing (silent AAD + RDP handshake), until
+        # the desktop logs on.
+        overlay = Gtk.Overlay()
+        overlay.set_vexpand(True)
+        overlay.set_child(sw)
+        cbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        cbox.set_halign(Gtk.Align.CENTER)
+        cbox.set_valign(Gtk.Align.CENTER)
+        cbox.add_css_class("connect-card")
+        self._connect_spinner = Gtk.Spinner()
+        self._connect_spinner.set_size_request(40, 40)
+        self._connect_label = Gtk.Label(label="Connecting…")
+        self._connect_label.add_css_class("connect-label")
+        cbox.append(self._connect_spinner)
+        cbox.append(self._connect_label)
+        cbox.set_visible(False)
+        cbox.set_can_target(False)   # never intercept clicks on the grid
+        self._connect_overlay = cbox
+        overlay.add_overlay(cbox)
+        wp.append(overlay)
         self.status = Gtk.Label(label="", xalign=0)
         self.status.add_css_class("status")
         wp.append(self.status)
@@ -293,6 +320,26 @@ class AvdApp(Gtk.Application):
     # ---- helpers (main thread) --------------------------------------------
     def _set_status(self, text):
         GLib.idle_add(lambda: self.status.set_text(text) if self.status else None)
+
+    def _set_connecting(self, res_id, title, on):
+        """Show/hide the centered 'Connecting…' spinner overlay. Safe to call
+        from any thread. The overlay stays up while any session is connecting."""
+        def apply():
+            if on:
+                self._connecting.add(res_id)
+            else:
+                self._connecting.discard(res_id)
+            if self._connecting:
+                n = len(self._connecting)
+                self._connect_label.set_text(
+                    f"Connecting to {title}…" if n == 1 else f"Connecting… ({n})")
+                self._connect_spinner.start()
+                self._connect_overlay.set_visible(True)
+            else:
+                self._connect_overlay.set_visible(False)
+                self._connect_spinner.stop()
+            return False
+        GLib.idle_add(apply)
 
     def _show(self, name):
         def apply():
@@ -312,7 +359,7 @@ class AvdApp(Gtk.Application):
         af.set_upn_from_token(tok)  # learn the account for /u: and the status bar
         rt = tok.get("refresh_token")
         if rt:
-            af._save_cache(rt)
+            af.save_refresh_token(rt)
         # refresh 5 min before expiry (min 60s out)
         secs = max(60, int(tok.get("expires_in", 3600)) - 300)
         GLib.idle_add(self._schedule_refresh, secs)
@@ -330,9 +377,9 @@ class AvdApp(Gtk.Application):
 
     def _do_refresh(self, silent):
         """Run the refresh_token grant; returns True on success."""
-        try:
-            rt = json.load(open(af.CACHE))["refresh_token"]
-        except Exception:
+        rec = af.load_token_record()
+        rt = rec.get("refresh_token") if rec else None
+        if not rt:
             if not silent:
                 self._show("signin")
             return False
@@ -355,7 +402,7 @@ class AvdApp(Gtk.Application):
         return self._do_refresh(silent=True)
 
     def _silent_signin(self):
-        if os.path.exists(af.CACHE) and self._do_refresh(silent=True):
+        if af.has_token() and self._do_refresh(silent=True):
             self._load_feed_bg()
             return
         self._show("signin")
@@ -369,6 +416,28 @@ class AvdApp(Gtk.Application):
             return ("Showing saved workspaces · your organization requires signing "
                     "in again (Conditional Access sign-in frequency)")
         return "Showing saved workspaces · sign in again to refresh"
+
+    def _web_session(self):
+        """Shared, PERSISTENT WebKit network session used by every Microsoft
+        sign-in webview — the launcher's sign-in dialog and the connection-time
+        AAD resolver. It only ever visits Entra login domains, so persisting its
+        cookies (a) makes a re-auth after a token refresh is refused a
+        click-through (SSO) instead of full password+MFA, and (b) lets the
+        connection-time gateway token be fetched silently from the same SSO
+        session. Stored in our app data dir (user-private); the refresh token
+        itself lives in the keyring, not here."""
+        if self._web_session_obj is None:
+            d = os.path.join(os.path.dirname(af.CACHE), "webview")
+            os.makedirs(d, exist_ok=True)
+            self._web_session_obj = WebKit.NetworkSession.new(
+                d, os.path.join(d, "cache"))
+            try:
+                self._web_session_obj.get_cookie_manager().set_persistent_storage(
+                    os.path.join(d, "cookies.sqlite"),
+                    WebKit.CookiePersistentStorage.SQLITE)
+            except Exception:
+                pass
+        return self._web_session_obj
 
     def _interactive_signin(self):
         # Never reuse or resume a previous sign-in window: tear any existing one
@@ -400,18 +469,14 @@ class AvdApp(Gtk.Application):
 
         dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
         dlg.set_default_size(520, 640)
-        # Ephemeral (in-memory) session: the sign-in webview keeps NO cookies on
-        # disk, so every sign-in starts from a clean slate and closing the
-        # window discards everything — like a private/incognito browser window.
-        # WebKit 6's default session is persistent; with it, closing a sign-in
-        # part-way (e.g. after starting down the wrong account) saved the
-        # half-finished SSO state and the next launch resumed into it, hanging
-        # on a blank page. Our own session persistence is the refresh-token
-        # cache, not these cookies, so nothing is lost by making this ephemeral.
-        session = WebKit.NetworkSession.new_ephemeral()
-        wv = WebKit.WebView(network_session=session)
+        # Shared PERSISTENT session (SSO cookies kept on disk) so a re-auth is a
+        # click-through and the connection-time token can be fetched silently.
+        # The half-finished-flow / ghost-window problems that made us try an
+        # ephemeral session are fixed independently (popup blocking + explicit
+        # close-request + always destroying/rebuilding the dialog + DMABUF off),
+        # so persistence is safe and is what actually reduces sign-in prompts.
+        wv = WebKit.WebView(network_session=self._web_session())
         dlg.set_child(wv)
-        dlg._session = session   # keep a ref so it lives as long as the dialog
         self._signin_dlg = dlg
         got_code = [False]
 
@@ -472,13 +537,18 @@ class AvdApp(Gtk.Application):
 
     def _sign_out(self):
         # Manual sign-out is the ONLY thing that clears the session + workspaces.
-        for p in (af.CACHE, WS_CACHE):
-            try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except OSError:
-                pass
+        af.clear_token_cache()            # keyring entry + any fallback file
+        try:
+            if os.path.exists(WS_CACHE):
+                os.remove(WS_CACHE)
+        except OSError:
+            pass
         shutil.rmtree(ICON_DIR, ignore_errors=True)
+        # Forget the persisted Microsoft SSO cookies too, so sign-out is total
+        # (next sign-in is a fresh password+MFA, not a cookie click-through).
+        self._web_session_obj = None
+        shutil.rmtree(os.path.join(os.path.dirname(af.CACHE), "webview"),
+                      ignore_errors=True)
         self._pending_launch = None
         af.UPN = "" if not os.environ.get("AVD_UPN") else af.UPN
         with self._token_lock:
@@ -652,6 +722,7 @@ class AvdApp(Gtk.Application):
         child._launching = True
         self._set_tile_state(res["id"], "● Connecting…", "state-connecting")
         self.status.set_text(f"Connecting to {res['title']}…")
+        self._set_connecting(res["id"], res["title"], True)
         threading.Thread(target=self._launch, args=(child, res), daemon=True).start()
 
     def _launch(self, child, res):
@@ -660,6 +731,7 @@ class AvdApp(Gtk.Application):
             # (like the Windows App when you click a workspace after a while),
             # keeping the workspace list intact.
             child._launching = False
+            self._set_connecting(res["id"], res["title"], False)
             self._set_tile_state(res["id"], "", None)
             self._set_status("Sign in to connect")
             self._pending_launch = res["id"]   # connect automatically afterwards
@@ -669,6 +741,7 @@ class AvdApp(Gtk.Application):
             path = af.download_rdp(self.token, res)
         except (SystemExit, Exception) as e:  # never let a write/HTTP error hang the tile
             child._launching = False
+            self._set_connecting(res["id"], res["title"], False)
             self._error(str(e))
             self._set_tile_state(res["id"], "● Failed", "state-ended")
             return
@@ -680,11 +753,14 @@ class AvdApp(Gtk.Application):
         env["GDK_BACKEND"] = "x11"
         env["SDL_VIDEODRIVER"] = "x11"
         env.pop("WAYLAND_DISPLAY", None)
-        # FreeRDP's AAD-login webview (WebKitGTK) renders blank when its DMABUF/GBM
-        # path fails ("Failed to create GBM buffer … Invalid argument"), which then
-        # blocks token acquisition (ERRCONNECT_ACCESS_DENIED). Disable the DMABUF
-        # renderer so the login page always draws (software compositing fallback).
+        # FreeRDP no longer has its own webview (we resolve AAD in-process), but
+        # keep this set for the child in case any bundled component initializes
+        # WebKitGTK — the DMABUF/GBM path blanks on some GPUs. Harmless otherwise.
         env["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
+        # Reduce tearing in the SDL3 client (vsync + double buffer). SDL hints,
+        # ignored where unsupported, so always safe.
+        env.setdefault("SDL_RENDER_VSYNC", "1")
+        env.setdefault("SDL_VIDEO_DOUBLE_BUFFER", "1")
         if af.SDL_LIBS and os.path.isdir(af.SDL_LIBS):
             env["LD_LIBRARY_PATH"] = af.SDL_LIBS + (
                 os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
@@ -702,7 +778,13 @@ class AvdApp(Gtk.Application):
         scale = os.environ.get("AVD_SCALE") or self._eff("scale", res) \
             or str(100 * max(1, self._scale))
         argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
-                 "/f", f"/scale-desktop:{scale}", "/log-level:info"]
+                 "/f", f"/scale-desktop:{scale}", "/log-level:info",
+                 # bandwidth/quality + resilience + keepalive:
+                 "+compression", "+fonts",
+                 "+auto-reconnect", "/auto-reconnect-max-retries:10",
+                 # inject fake input so the Azure gateway doesn't idle-drop the
+                 # session (which would otherwise force a reconnect + token re-mint)
+                 "/prevent-session-lock:120"]
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
         if mm in ("1", "on", "true", "yes"):
             want_multimon = True
@@ -719,38 +801,141 @@ class AvdApp(Gtk.Application):
                 argv += shlex.split(extra)
             except ValueError:
                 pass
-        with open(logpath, "w") as log:
-            proc = subprocess.Popen(argv, env=env, stdout=log,
-                                    stderr=subprocess.STDOUT)
+        # Launch under a PTY. With FreeRDP built WITHOUT its own AAD webview,
+        # /sec:aad prints "Browse to: <url>" and reads the redirect URL back
+        # from stdin — but only when it thinks it's attached to a terminal, so
+        # we give it a real pty. We service that prompt ourselves in a hidden
+        # webview that shares the launcher's SSO cookies, making the
+        # connection-time token silent. A new process group lets us tear down
+        # the whole FreeRDP tree cleanly.
+        master, slave = pty.openpty()
+        try:
+            proc = subprocess.Popen(argv, env=env, stdin=slave, stdout=slave,
+                                    stderr=slave, start_new_session=True,
+                                    close_fds=True)
+        finally:
+            os.close(slave)
         child._proc = proc
+        child._ptym = master
         self._set_status(f"Launched {res['title']}")
-        self._watch_session(child, res, proc, logpath)
+        self._watch_session(child, res, proc, master, logpath)
 
-    def _watch_session(self, child, res, proc, logpath):
-        """Flip the tile to 'Connected' once the session logs on, then back to
-        idle when sdl-freerdp exits."""
-        connected = False
-        while proc.poll() is None:
-            if not connected:
+    _ANSI = _re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
+
+    def _watch_session(self, child, res, proc, master, logpath):
+        """Read sdl-freerdp's PTY output: flip the tile to 'Connected' on logon,
+        service each 'Browse to:' AAD prompt silently, and tidy up on exit."""
+        state = {"connected": False}
+        buf = b""
+        log = open(logpath, "wb")
+        try:
+            while True:
                 try:
-                    with open(logpath, "r", errors="replace") as f:
-                        blob = f.read()
-                    # "Logon Info V2" is logged once the AVD session logs on
-                    if "Logon Info" in blob:
-                        connected = True
-                        self._set_tile_state(res["id"], "● Connected",
-                                             "state-connected")
-                        self._set_status(f"Connected to {res['title']}")
-                except OSError:
-                    pass
-            time.sleep(1.0)
-        # process exited — allow relaunch
+                    r, _, _ = select.select([master], [], [], 1.0)
+                except (OSError, ValueError):
+                    break
+                if r:
+                    try:
+                        data = os.read(master, 4096)
+                    except OSError:
+                        break
+                    if not data:            # EOF: child closed the pty (exited)
+                        break
+                    log.write(data)
+                    log.flush()
+                    buf += data
+                    while b"\n" in buf:
+                        raw, buf = buf.split(b"\n", 1)
+                        line = self._ANSI.sub(b"", raw).decode("utf-8", "replace").strip()
+                        if line:
+                            self._on_freerdp_line(child, res, master, line, state)
+                elif proc.poll() is not None:
+                    break
+        finally:
+            try:
+                log.close()
+            except Exception:
+                pass
+            try:
+                os.close(master)
+            except OSError:
+                pass
         child._launching = False
+        self._set_connecting(res["id"], res["title"], False)  # ensure overlay clears
         self._set_tile_state(res["id"], "○ Disconnected", "state-ended")
         self._set_status(f"{res['title']} session ended")
-        # clear the label after a short while
         GLib.timeout_add_seconds(
             6, lambda: (self._set_tile_state(res["id"], "", None), False)[1])
+
+    def _on_freerdp_line(self, child, res, master, line, state):
+        """Handle one line of FreeRDP output (called from the reader thread)."""
+        if not state["connected"] and "Logon Info" in line:
+            state["connected"] = True
+            self._set_tile_state(res["id"], "● Connected", "state-connected")
+            self._set_status(f"Connected to {res['title']}")
+            self._set_connecting(res["id"], res["title"], False)  # desktop is up
+        if line.startswith("Browse to: "):
+            url = line[len("Browse to: "):].strip()
+            if url.startswith("http"):
+                # Resolve on the main thread (WebKit must run there).
+                GLib.idle_add(self._resolve_aad, master, url, res)
+
+    def _resolve_aad(self, master, url, res):
+        """Service FreeRDP's connection-time AAD prompt: load its authorize URL
+        in a hidden webview sharing our SSO cookies, and write the resulting
+        redirect URL back to FreeRDP's stdin. The window is shown only if it
+        doesn't resolve silently within 3s (i.e. MFA/consent is really needed)."""
+        wv = WebKit.WebView(network_session=self._web_session())
+        # Unpresented window: a WebView loads/navigates while its window is
+        # hidden (verified), so the silent path never flashes a window.
+        win = Gtk.Window(title=f"Sign in — {res['title']}", transient_for=self.win)
+        win.set_default_size(520, 640)
+        win.set_child(wv)
+        holder = {"done": False, "shown": False}
+
+        def finish(redirect_uri):
+            if holder["done"]:
+                return
+            holder["done"] = True
+            try:
+                os.write(master, (redirect_uri + "\n").encode())
+            except OSError:
+                pass
+            win.destroy()
+
+        def on_decide(view, decision, dtype):
+            if dtype == WebKit.PolicyDecisionType.NAVIGATION_ACTION:
+                uri = decision.get_navigation_action().get_request().get_uri()
+                if "nativeclient" in uri and "code=" in uri:
+                    decision.ignore()
+                    finish(uri)
+                    return True
+            return False
+
+        def on_destroy(*_):
+            # Window closed before it resolved (user cancelled): send a blank
+            # line so FreeRDP aborts this auth instead of blocking on stdin.
+            if not holder["done"]:
+                holder["done"] = True
+                try:
+                    os.write(master, b"\n")
+                except OSError:
+                    pass
+
+        wv.connect("create", lambda *_a: None)     # block popups (no ghost windows)
+        wv.connect("decide-policy", on_decide)
+        win.connect("close-request", lambda w: (w.destroy(), True)[1])
+        win.connect("destroy", on_destroy)
+        wv.load_uri(url)
+
+        def show_if_pending():
+            if not holder["done"] and not holder["shown"]:
+                holder["shown"] = True
+                self._set_status(f"Signing in to {res['title']}…")
+                win.present()
+            return False
+        GLib.timeout_add(3000, show_if_pending)
+        return False
 
     # ---- per-resource settings -------------------------------------------
     def _eff(self, key, res):

@@ -28,6 +28,7 @@ finish-args:
   - --device=all                    # webcam (camera redirection) + input
   - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
   - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets         # login keyring (libsecret) for the refresh token
   - --env=LD_LIBRARY_PATH=/app/lib
 
 # NOTE on ffmpeg: FreeRDP is built WITH_FFMPEG against the runtime's own ffmpeg
@@ -113,8 +114,13 @@ modules:
       - -DWITH_CLIENT_SDL2=OFF
       - -DWITH_SERVER=OFF
       - -DWITH_SAMPLE=OFF
-      - -DWITH_AAD=ON            # connection-time AAD popup (uses runtime WebKitGTK)
-      - -DWITH_WEBVIEW=ON
+      - -DWITH_AAD=ON            # connection-time AAD token acquisition
+      # No FreeRDP-side WebView: WITH_WEBVIEW=OFF makes /sec:aad print
+      # "Browse to: <url>" and read the redirect URL from stdin. The app drives
+      # that over a PTY and resolves the URL in its own hidden webview (sharing
+      # the launcher's SSO cookies), so the connection-time token is silent and
+      # there is no second embedded browser to blank out / crash.
+      - -DWITH_WEBVIEW=OFF
       - -DWITH_PULSE=ON
       - -DWITH_FFMPEG=ON
       - -DWITH_SWSCALE=ON
@@ -134,13 +140,6 @@ modules:
         # (PR #13334) were merged here (merge commit below), so we no longer need
         # the fork. Camera redirection is a build option, enabled via config-opts.
         commit: 023c2a6d44264fa3a74d7607755279d3ac575637
-      # WITH_WEBVIEW normally git-clones this at configure time (fails in the
-      # offline Flatpak build). Placed at external/webview, FreeRDP's CMake uses
-      # it directly instead of fetching. (WebKitGTK comes from the runtime.)
-      - type: git
-        url: https://github.com/akallabeth/webview
-        commit: 2a0a1303c5e8c9c5b73fa9e461739042ebdabe6f  # branch navigation-listener
-        dest: external/webview
 
   # ---- the app itself ----------------------------------------------------
   - name: avd-feed-connect

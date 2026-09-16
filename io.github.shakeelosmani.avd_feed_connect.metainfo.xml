@@ -61,6 +61,26 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.6" date="2026-09-16">
+      <description>
+        <p>Sign-in and connections are smoother and more secure:</p>
+        <ul>
+          <li>Your sign-in is stored in the system login keyring (encrypted at
+          rest) instead of a plaintext file; an existing token is migrated
+          automatically.</li>
+          <li>Signing in again after your session expires is now usually a
+          single click instead of re-entering your password, because the
+          Microsoft sign-in is remembered between launches.</li>
+          <li>Connecting no longer opens a second sign-in window — the app
+          obtains the connection token itself, silently, and only shows a
+          window if your organization actually requires MFA at connect time.</li>
+          <li>Connections gain automatic reconnect, a keepalive that stops the
+          gateway dropping idle sessions, and smoother, less-torn video.</li>
+          <li>A “Connecting…” animation now shows while the session is being
+          established.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.5" date="2026-09-16">
       <description>
         <p>Make sign-in robust when you close it part-way (for example after

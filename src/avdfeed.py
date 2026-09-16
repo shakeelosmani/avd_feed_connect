@@ -130,11 +130,124 @@ def _get(url, token, accept="*/*"):
         return e.code, dict(e.headers), e.read().decode(errors="replace")
 
 
-def _save_cache(refresh_token):
+# ---- token cache: OS keyring (libsecret) first, 0600 file fallback --------
+# The refresh token is the crown jewel (offline_access, long-lived). Keep it in
+# the login keyring via libsecret when reachable (encrypted at rest by the OS),
+# and fall back to a 0600 JSON file only when the keyring can't be used. A
+# legacy plaintext token-cache.json written by older versions is migrated into
+# the keyring on first read and then removed.
+_SECRET_SCHEMA = None
+
+
+def _secret():
+    """(Secret_module, schema, attrs) if libsecret is available, else None."""
+    global _SECRET_SCHEMA
+    try:
+        import gi
+        gi.require_version("Secret", "1")
+        from gi.repository import Secret
+    except Exception:
+        return None
+    if _SECRET_SCHEMA is None:
+        _SECRET_SCHEMA = Secret.Schema.new(
+            "io.github.shakeelosmani.avd_feed_connect", Secret.SchemaFlags.NONE,
+            {"attr": Secret.SchemaAttributeType.STRING})
+    return Secret, _SECRET_SCHEMA, {"attr": "token-cache"}
+
+
+def _keyring_store(record_json):
+    s = _secret()
+    if not s:
+        return False
+    Secret, schema, attrs = s
+    try:
+        return bool(Secret.password_store_sync(
+            schema, attrs, Secret.COLLECTION_DEFAULT,
+            "AVD Feed + Connect refresh token", record_json, None))
+    except Exception:
+        return False
+
+
+def _keyring_load():
+    s = _secret()
+    if not s:
+        return None
+    Secret, schema, attrs = s
+    try:
+        v = Secret.password_lookup_sync(schema, attrs, None)
+        return json.loads(v) if v else None
+    except Exception:
+        return None
+
+
+def _keyring_clear():
+    s = _secret()
+    if not s:
+        return
+    Secret, schema, attrs = s
+    try:
+        Secret.password_clear_sync(schema, attrs, None)
+    except Exception:
+        pass
+
+
+def _shred_cache_file():
+    try:
+        os.remove(CACHE)
+    except OSError:
+        pass
+
+
+def _file_store(record):
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)  # XDG data dir may not exist yet
-    fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = CACHE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump({"refresh_token": refresh_token, "obtained": int(time.time())}, f)
+        json.dump(record, f)
+    os.replace(tmp, CACHE)  # atomic
+
+
+def save_refresh_token(refresh_token):
+    """Persist the refresh token (+ obtained timestamp): keyring if possible,
+    else a 0600 file. A successful keyring write shreds any plaintext file so a
+    copy is never left behind."""
+    record = {"refresh_token": refresh_token, "obtained": int(time.time())}
+    if _keyring_store(json.dumps(record)):
+        _shred_cache_file()
+        return
+    _file_store(record)
+
+
+def load_token_record():
+    """Return {'refresh_token':.., 'obtained':..} or None. Promotes a legacy /
+    fallback plaintext file into the keyring (then shreds it) on first read."""
+    rec = _keyring_load()
+    if rec and rec.get("refresh_token"):
+        return rec
+    try:
+        with open(CACHE) as f:
+            rec = json.load(f)
+    except Exception:
+        return None
+    if rec and rec.get("refresh_token"):
+        if _keyring_store(json.dumps(rec)):
+            _shred_cache_file()
+        return rec
+    return None
+
+
+def has_token():
+    return load_token_record() is not None
+
+
+def clear_token_cache():
+    _keyring_clear()
+    _shred_cache_file()
+
+
+# Back-compat shim: older call sites persisted just the refresh token.
+def _save_cache(refresh_token):
+    save_refresh_token(refresh_token)
 
 
 def _b64url(b):
@@ -259,12 +372,12 @@ def set_upn_from_token(tok):
 
 
 def get_token(verbose=True, use_device_code=False):
-    if os.path.exists(CACHE):
-        with open(CACHE) as f:
-            rt = json.load(f)["refresh_token"]
+    rec = load_token_record()
+    if rec:
+        rt = rec["refresh_token"]
         tok = _refresh(rt)
         if tok:
-            _save_cache(tok.get("refresh_token", rt))
+            save_refresh_token(tok.get("refresh_token", rt))
             set_upn_from_token(tok)
             if verbose:
                 print(f"token: silent refresh ok (expires_in={tok['expires_in']}s,"
@@ -273,7 +386,7 @@ def get_token(verbose=True, use_device_code=False):
         if verbose:
             print("cached refresh token invalid, signing in again")
     tok = _device_code() if use_device_code else _auth_code()
-    _save_cache(tok["refresh_token"])
+    save_refresh_token(tok["refresh_token"])
     set_upn_from_token(tok)
     if verbose:
         how = "device-code" if use_device_code else "interactive auth-code"
