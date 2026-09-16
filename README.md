@@ -36,15 +36,34 @@ drives a bundled, hardened FreeRDP for the actual connection.
    (sending the approved `X-MS-User-Agent` the service requires).
 3. **Workspace grid** with the real per-resource icons; double-click to connect.
 4. **Connect** by downloading the resource's `.rdp` from the feed and launching
-   the bundled `sdl-freerdp` with `/gateway:type:arm /sec:aad`.
+   the bundled `sdl-freerdp` with `/gateway:type:arm /sec:aad`. The
+   connection's Entra token is obtained **silently** in the background (see
+   below) — no second sign-in window unless your org requires MFA at connect.
 
 Token refresh is the standard OAuth2 `refresh_token` grant (offline_access);
-the app renews the access token silently before it expires.
+the app renews the access token silently before it expires. The refresh token
+is stored in your **login keyring** (via libsecret), encrypted at rest — not in
+a plaintext file. The embedded sign-in keeps your Microsoft SSO session between
+launches, so re-authenticating (for example when a Conditional Access policy
+expires your token) is usually a single click rather than a full password+MFA.
+
+## Silent connection sign-in
+
+FreeRDP's `/sec:aad` needs an Entra token at connect time. Rather than let
+FreeRDP open its **own** second browser window for that, this app builds
+FreeRDP without a webview and drives it over a pseudo-terminal: it intercepts
+FreeRDP's `Browse to:` prompt, resolves the URL in a hidden WebKit view that
+**shares the sign-in SSO session**, and hands the result back. So the
+connection token is acquired with no visible prompt; a window only appears if
+MFA/consent is genuinely required (after a short delay). This also removes a
+whole class of blank/second-window bugs the bundled FreeRDP webview could hit.
 
 ## The bundled FreeRDP
 
 The Flatpak builds FreeRDP from upstream `master` with **camera redirection**
 (`CHANNEL_RDPECAM_CLIENT`) enabled, plus microphone and multi-monitor.
+Automatic reconnect and a gateway keepalive are on by default so brief network
+blips and idle timeouts don't drop the session.
 
 It also includes the **PulseAudio hot-unplug + rdpsnd busy-loop fixes**
 ([FreeRDP#13334](https://github.com/FreeRDP/FreeRDP/pull/13334), now merged
@@ -172,15 +191,17 @@ Linux machine typically isn't. Your admin can see which policy fired under
 Entra → Sign-in logs.
 
 The app makes that as painless as it can: the saved workspaces stay on screen,
-re-signing in goes straight to your account's password/MFA page (no account
-picker, no "work or personal account?" question), and the workspace you
-double-clicked connects on its own once you're back in.
+and because your Microsoft SSO session is remembered between launches, the
+re-auth is usually a **single click** on your account (no password re-entry)
+rather than a full password+MFA — unless the policy is strict enough to demand
+fresh credentials. The workspace you double-clicked then connects on its own
+once you're back in.
 
 ## Status
 
-Early. Feed discovery, sign-in, the workspace grid, and connect are working. The
-Flatpak manifest is complete but still needs a first clean `flatpak-builder` run
-(the FreeRDP module has the most external deps). Contributions welcome.
+Working: feed discovery, keyring-backed sign-in with click-through re-auth,
+the workspace grid, silent connect, camera/mic/multi-monitor, and self-updating
+Flatpak install. Contributions welcome.
 
 ## License
 
