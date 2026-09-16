@@ -39,6 +39,13 @@ import shlex
 import shutil
 import subprocess
 
+# Software-composite WebKit (our sign-in webview) instead of the DMABUF/GBM
+# GPU path. That path fails to allocate a GBM buffer on some GPUs/drivers
+# (notably under XWayland / in the Flatpak sandbox, and after repeated webviews
+# exhaust buffers), leaving the sign-in window BLANK. Must be set before WebKit
+# initializes its renderer. setdefault so a user can still force the GPU path.
+os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
@@ -364,9 +371,12 @@ class AvdApp(Gtk.Application):
         return "Showing saved workspaces · sign in again to refresh"
 
     def _interactive_signin(self):
-        if self._signin_dlg is not None:      # already open — just raise it
-            self._signin_dlg.present()
-            return
+        # Never reuse or resume a previous sign-in window: tear any existing one
+        # down and start fresh, so closing and reopening is always a clean slate
+        # (the user's rule: close must close, reopen must resume from clean).
+        if self._signin_dlg is not None:
+            old, self._signin_dlg = self._signin_dlg, None
+            old.destroy()
         verifier = af._b64url(secrets.token_bytes(64))
         challenge = af._b64url(hashlib.sha256(verifier.encode()).digest())
         state = secrets.token_urlsafe(16)
@@ -390,16 +400,38 @@ class AvdApp(Gtk.Application):
 
         dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
         dlg.set_default_size(520, 640)
-        wv = WebKit.WebView()
+        # Ephemeral (in-memory) session: the sign-in webview keeps NO cookies on
+        # disk, so every sign-in starts from a clean slate and closing the
+        # window discards everything — like a private/incognito browser window.
+        # WebKit 6's default session is persistent; with it, closing a sign-in
+        # part-way (e.g. after starting down the wrong account) saved the
+        # half-finished SSO state and the next launch resumed into it, hanging
+        # on a blank page. Our own session persistence is the refresh-token
+        # cache, not these cookies, so nothing is lost by making this ephemeral.
+        session = WebKit.NetworkSession.new_ephemeral()
+        wv = WebKit.WebView(network_session=session)
         dlg.set_child(wv)
+        dlg._session = session   # keep a ref so it lives as long as the dialog
         self._signin_dlg = dlg
         got_code = [False]
 
+        # Block popups. A page (e.g. the personal-account "approve on your phone"
+        # step) can call window.open(); WebKit would spawn a separate, orphan
+        # WebView/window with no controls — the "ghost window" that can't be
+        # closed. Returning None here declines the popup instead.
+        wv.connect("create", lambda *_a: None)
+
         def on_closed(*_):
-            self._signin_dlg = None
+            # Clicking the window's × always closes it and fully resets state,
+            # so the next sign-in is a clean start (no resumed half-finished flow).
+            if self._signin_dlg is dlg:
+                self._signin_dlg = None
             if not got_code[0]:
                 self._pending_launch = None   # user gave up; don't auto-connect later
         dlg.connect("destroy", on_closed)
+        # Default close-request already destroys the window; make it explicit and
+        # unconditional so nothing can swallow the close.
+        dlg.connect("close-request", lambda w: (w.destroy(), True)[1])
 
         def on_decide(view, decision, dtype):
             if dtype != WebKit.PolicyDecisionType.NAVIGATION_ACTION:

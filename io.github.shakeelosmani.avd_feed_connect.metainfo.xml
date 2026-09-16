@@ -61,6 +61,15 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.5" date="2026-09-16">
+      <description>
+        <p>Make sign-in robust when you close it part-way (for example after
+        picking the wrong account). The window's close button now always closes,
+        reopening always starts a clean sign-in, and the page no longer comes up
+        blank or spawns a stray window that can't be closed. Staying signed in
+        is unaffected.</p>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-09-15">
       <description>
         <p>Fix sign-in problems introduced in 0.3.3 on some organizations: the
