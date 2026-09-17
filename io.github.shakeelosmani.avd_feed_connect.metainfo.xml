@@ -61,6 +61,14 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.7" date="2026-09-16">
+      <description>
+        <p>A refreshed, modern look: tactile workspace tiles with clearer icons
+        and status, a tidier header with an account menu, and a cleaner status
+        bar. New Light / Dark / System appearance switch in the account menu
+        (remembered between launches). No change to how connections work.</p>
+      </description>
+    </release>
     <release version="0.3.6" date="2026-09-16">
       <description>
         <p>Sign-in and connections are smoother and more secure:</p>

@@ -51,7 +51,7 @@ os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gtk, GLib, Gdk  # noqa: E402
+from gi.repository import Gtk, GLib, Gdk, Gio  # noqa: E402
 from gi.repository import WebKit  # noqa: E402
 
 # shared feed/auth logic lives next to this file (installed together)
@@ -60,6 +60,7 @@ import avdfeed as af  # noqa: E402
 
 APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
+APP_VERSION = "0.3.7"
 
 # Persist the last discovered workspaces so reopening shows them instantly
 # (like the Windows App), instead of bouncing to sign-in on every launch.
@@ -130,25 +131,146 @@ def _bearer_bytes(url, token):
         return r.read()
 
 
-CSS = """
-.tile { padding: 10px; border-radius: 10px; }
-.tile:hover { background: rgba(128,128,128,0.15); }
-.tile-title { font-weight: 600; margin-top: 6px; }
-.tile-sub { font-size: 90%; opacity: 0.6; }
-.status { padding: 6px 10px; opacity: 0.7; font-size: 90%; }
-.tile-state { font-size: 85%; margin-top: 2px; }
-.state-connecting { color: #e08a00; }
-.state-connected { color: #2ea043; font-weight: 600; }
-.state-ended { opacity: 0.5; }
-.connect-card { background: rgba(20,20,20,0.72); border-radius: 16px;
-                padding: 28px 44px; }
-.connect-label { color: #ffffff; font-size: 15px; margin-top: 4px; }
+# ---- theme / styling -------------------------------------------------------
+# GTK CSS is not web CSS: no var(), no transform, no ::before. We define the
+# palette with @define-color (a light set and a dark set) and pick which to load
+# based on the desktop's dark preference, so the look is consistent across
+# distros/themes instead of inheriting whatever GTK theme is active.
+PALETTE_LIGHT = """
+@define-color avd_bg #F4F6F9;
+@define-color avd_surface #FFFFFF;
+@define-color avd_surface2 #F1F4F8;
+@define-color avd_border #E3E8EF;
+@define-color avd_border_strong #D3DAE3;
+@define-color avd_ink #1A2230;
+@define-color avd_muted #66707E;
+@define-color avd_faint #98A2B3;
+@define-color avd_accent #0E7CF4;
+@define-color avd_accent_ink #0B63C4;
+@define-color avd_ok #2FB86B;
+@define-color avd_warn #B87E00;
+"""
+PALETTE_DARK = """
+@define-color avd_bg #161A21;
+@define-color avd_surface #212630;
+@define-color avd_surface2 #2A303B;
+@define-color avd_border #353D49;
+@define-color avd_border_strong #48525F;
+@define-color avd_ink #F2F5FA;
+@define-color avd_muted #AEB8C6;
+@define-color avd_faint #7B8593;
+@define-color avd_accent #57A0FF;
+@define-color avd_accent_ink #8ABAFF;
+@define-color avd_ok #4FD08D;
+@define-color avd_warn #F2B838;
+"""
+CSS_BASE = """
+window.avd, .avd-page { background:@avd_bg; }
+.avd-page { background:@avd_bg; }
+
+headerbar.avd-header {
+  background:linear-gradient(to bottom, @avd_surface, @avd_surface2);
+  border-bottom:1px solid @avd_border; box-shadow:none; min-height:52px;
+  padding:6px 8px;
+}
+/* window controls (min/max/close) — keep them clearly visible in dark mode */
+headerbar.avd-header windowcontrols button,
+headerbar.avd-header .titlebutton { color:@avd_muted; background:none;
+  box-shadow:none; min-width:26px; min-height:26px; }
+headerbar.avd-header windowcontrols button:hover,
+headerbar.avd-header .titlebutton:hover { color:@avd_ink; background:alpha(@avd_ink,0.08); }
+.mark { min-width:34px; min-height:34px; border-radius:10px; color:#ffffff;
+  background:linear-gradient(145deg,#2D8BFF,#0E63D6);
+  box-shadow:0 3px 8px -2px alpha(#0E7CF4,0.55); }
+.brand-title { font-weight:800; font-size:15px; color:@avd_ink; }
+.brand-sub { font-size:11px; color:@avd_faint; }
+button.iconbtn { border-radius:9px; color:@avd_muted; background:none;
+  border:1px solid transparent; min-width:34px; min-height:34px; box-shadow:none; padding:0; }
+button.iconbtn:hover { background:@avd_bg; color:@avd_ink; border-color:@avd_border; }
+/* the class sits on the menubutton; style its inner button (else it keeps the
+   theme's default light background and the email text vanishes in dark mode) */
+menubutton.acct-btn { background:none; box-shadow:none; }
+menubutton.acct-btn > button { border-radius:20px; border:1px solid @avd_border;
+  background:@avd_bg; color:@avd_ink; padding:2px 10px 2px 3px; box-shadow:none; min-height:32px; }
+menubutton.acct-btn > button:hover { border-color:@avd_border_strong; background:@avd_bg; }
+.avatar { min-width:26px; min-height:26px; border-radius:20px;
+  background:linear-gradient(145deg,#5B6BFF,#7A3BE0); color:#ffffff;
+  font-weight:800; font-size:11px; }
+.acct-who { font-weight:600; font-size:12px; color:@avd_ink; }
+.caret { color:@avd_faint; }
+
+.section-h { font-weight:800; font-size:11px; letter-spacing:1px; color:@avd_muted; }
+.count { font-size:12px; color:@avd_faint; }
+
+flowbox, flowboxchild { background:none; padding:0; border:none; box-shadow:none; }
+flowboxchild:selected, flowboxchild:focus, flowboxchild:active { background:none; }
+
+.tile { background:@avd_surface; border:1px solid @avd_border; border-radius:15px;
+  padding:15px; box-shadow:0 1px 2px alpha(#121C2E,0.05);
+  transition:border-color 150ms, box-shadow 150ms, background 150ms; }
+.tile:hover { border-color:@avd_accent;
+  box-shadow:0 10px 24px -14px alpha(@avd_accent,0.55), 0 2px 6px -2px alpha(#121C2E,0.12); }
+.tile.tile-connected { border-color:alpha(@avd_ok,0.55); }
+flowboxchild:focus-visible .tile { outline:2px solid @avd_accent; outline-offset:2px; }
+
+.ic { min-width:50px; min-height:50px; border-radius:13px; background:@avd_surface2; }
+.ic.desktop { background:alpha(@avd_accent,0.13); }
+.ic.desktop image { color:@avd_accent; }
+.ic.app { background:alpha(@avd_warn,0.15); }
+.ic.app image { color:@avd_warn; }
+
+.tname { font-weight:800; font-size:14px; color:@avd_ink; }
+.chiplabel { font-size:10px; font-weight:700; letter-spacing:0.7px; color:@avd_muted; }
+.chipdot { min-width:6px; min-height:6px; border-radius:6px; background:@avd_accent; }
+.chip-app .chipdot { background:@avd_warn; }
+
+.status-pill { font-size:9px; font-weight:800; letter-spacing:0.5px; padding:3px 9px;
+  border-radius:20px; background:alpha(@avd_ok,0.15); color:@avd_ok; }
+.status-pill.pill-connecting { background:alpha(@avd_warn,0.18); color:@avd_warn; }
+
+.foot { background:@avd_surface; border-top:1px solid @avd_border; padding:8px 16px; }
+.status { color:@avd_muted; font-size:12px; }
+.ver { color:@avd_faint; font-size:11px; }
+.livedot { min-width:7px; min-height:7px; border-radius:7px; background:@avd_ok; }
+
+.connect-card { background:@avd_surface; border:1px solid @avd_border; border-radius:18px;
+  padding:26px 34px; box-shadow:0 20px 48px -14px alpha(#121C2E,0.4); }
+.connect-label { font-weight:700; font-size:14px; color:@avd_ink; }
+.connect-sub { font-size:12px; color:@avd_muted; }
+
+.bigmark { min-width:66px; min-height:66px; border-radius:19px; color:#ffffff;
+  background:linear-gradient(145deg,#2D8BFF,#0E63D6);
+  box-shadow:0 12px 30px -10px alpha(#0E7CF4,0.65); }
+.hero-title { font-weight:800; font-size:22px; color:@avd_ink; }
+.hero-sub { font-size:14px; color:@avd_muted; }
+.hero-note { font-size:11px; color:@avd_faint; }
+button.msbtn { background:@avd_accent; color:#ffffff; font-weight:700; font-size:14px;
+  border-radius:11px; padding:11px 20px; border:none;
+  box-shadow:0 8px 18px -6px alpha(@avd_accent,0.6); }
+button.msbtn:hover { background:@avd_accent_ink; }
+
+.settings-title { font-weight:800; font-size:17px; color:@avd_ink; }
+.settings-sub { font-size:12px; color:@avd_muted; }
+.field-label { font-weight:800; font-size:11px; letter-spacing:0.6px; color:@avd_muted; }
+.menu-head { font-weight:800; font-size:9px; letter-spacing:0.8px; color:@avd_faint; }
+box.linked > button { min-height:26px; font-size:12px; font-weight:700;
+  color:@avd_muted; background:@avd_bg; box-shadow:none; }
+box.linked > button:hover { color:@avd_ink; }
+box.linked > button:checked { background:@avd_accent; color:#ffffff; }
 """
 
 
 class AvdApp(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID)
+        # Demo/screenshot runs skip D-Bus single-instance registration entirely
+        # (NON_UNIQUE), so they always run standalone and never hand off to (or
+        # collide with) the installed app. Under Flatpak the sandbox only lets
+        # the app own its exact app id, so a custom demo id can't be registered.
+        if os.environ.get("AVD_DEMO"):
+            super().__init__(application_id=APP_ID,
+                             flags=Gio.ApplicationFlags.NON_UNIQUE)
+        else:
+            super().__init__(application_id=APP_ID)
         self.token = None
         self._deadline = 0.0        # monotonic time the access token expires
         self._refresh_source = 0    # GLib timeout id for the scheduled refresh
@@ -175,6 +297,27 @@ class AvdApp(Gtk.Application):
         self._build_ui()
         self.win.present()
         self._detect_displays()
+        # Dev/screenshot mode: show a fixed, anonymous sample feed (no network,
+        # no sign-in). Used for documentation screenshots so they carry no real
+        # account or org details. Never triggered in normal use.
+        if os.environ.get("AVD_DEMO"):
+            af.UPN = "alex@contoso.com"
+            demo = [
+                {"id": "d1", "title": "Finance Desktop", "type": "Desktop",
+                 "tenant": "Contoso", "icon32": None},
+                {"id": "d2", "title": "Design Studio", "type": "Desktop",
+                 "tenant": "Contoso", "icon32": None},
+                {"id": "d3", "title": "Ops Console", "type": "RemoteApp",
+                 "tenant": "Contoso", "icon32": None},
+                {"id": "d4", "title": "Dev Sandbox", "type": "Desktop",
+                 "tenant": "Contoso", "icon32": None},
+                {"id": "d5", "title": "DR Failover", "type": "Desktop",
+                 "tenant": "Contoso", "icon32": None},
+            ]
+            self._populate(demo)
+            self._set_status("Signed in as alex@contoso.com")
+            self._set_tile_state("d2", "", "state-connected")
+            return
         # If we have previously discovered workspaces, show them immediately and
         # refresh the token + feed silently in the background (Windows-App-style
         # persistent session). Only a first run with no cache shows sign-in.
@@ -215,101 +358,212 @@ class AvdApp(Gtk.Application):
         _save_ws_cache(resources)
         GLib.idle_add(self._populate, resources)
 
+    def _is_dark(self):
+        ov = os.environ.get("AVD_THEME", "").strip().lower()
+        if ov in ("dark", "light"):
+            return ov == "dark"
+        pref = (self._settings.get("_theme") or "system")   # in-app choice
+        if pref == "light":
+            return False
+        if pref == "dark":
+            return True
+        s = Gtk.Settings.get_default()
+        try:
+            if s.get_property("gtk-application-prefer-dark-theme"):
+                return True
+        except Exception:
+            pass
+        try:
+            return "dark" in (s.get_property("gtk-theme-name") or "").lower()
+        except Exception:
+            return False
+
+    def _apply_theme(self, *_):
+        css = (PALETTE_DARK if self._is_dark() else PALETTE_LIGHT) + CSS_BASE
+        self._css_provider.load_from_string(css)
+
+    def _set_theme(self, key):
+        """Persist the appearance choice (system/light/dark) and apply it live."""
+        self._settings["_theme"] = key
+        _save_settings(self._settings)
+        self._apply_theme()
+
     def _build_ui(self):
-        prov = Gtk.CssProvider()
-        prov.load_from_string(CSS)
+        self._css_provider = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gdk.Display.get_default(), self._css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self._apply_theme()
+        st = Gtk.Settings.get_default()
+        for prop in ("notify::gtk-application-prefer-dark-theme", "notify::gtk-theme-name"):
+            st.connect(prop, self._apply_theme)
 
         self.win = Gtk.ApplicationWindow(application=self, title=APP_NAME)
-        self.win.set_default_size(760, 560)
+        self.win.add_css_class("avd")
+        self.win.set_default_size(820, 600)
 
+        # ---- header bar: brand (left) · refresh + account (right) -----------
         hb = Gtk.HeaderBar()
-        hb.set_title_widget(Gtk.Label(label=APP_NAME))
+        hb.add_css_class("avd-header")
+        hb.set_title_widget(Gtk.Label())     # blank the centered window title
         self.win.set_titlebar(hb)
 
-        self.refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
-        self.refresh_btn.set_tooltip_text("Refresh workspaces")
-        self.refresh_btn.connect("clicked", lambda *_: self._reload_feed())
-        hb.pack_start(self.refresh_btn)
+        brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
+        # The mark IS the image (a Gtk.Image always draws its icon centered in
+        # its allocation), sized/tinted by the .mark CSS — no box wrapper to
+        # mis-align or expand.
+        mark = Gtk.Image.new_from_icon_name("computer-symbolic")
+        mark.set_pixel_size(18); mark.add_css_class("mark"); mark.set_valign(Gtk.Align.CENTER)
+        tbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        tbox.set_valign(Gtk.Align.CENTER)      # center the title block next to the logo
+        t1 = Gtk.Label(label="AVD Feed + Connect", xalign=0); t1.add_css_class("brand-title")
+        t2 = Gtk.Label(label="Azure Virtual Desktop · Windows 365", xalign=0)
+        t2.add_css_class("brand-sub")
+        tbox.append(t1); tbox.append(t2)
+        brand.append(mark); brand.append(tbox)
+        brand.set_valign(Gtk.Align.CENTER)
+        hb.pack_start(brand)
 
-        menu_btn = Gtk.MenuButton()
-        menu_btn.set_icon_name("open-menu-symbolic")
+        # account menu button (avatar + who + caret), opens the settings/sign-out popover
+        menu_btn = Gtk.MenuButton(); menu_btn.add_css_class("acct-btn")
+        acctbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # The avatar IS the label (a Gtk.Label centers its own text), sized/
+        # tinted by the .avatar CSS — no box wrapper.
+        self._avatar_lbl = Gtk.Label(label="?"); self._avatar_lbl.add_css_class("avatar")
+        self._avatar_lbl.set_valign(Gtk.Align.CENTER)
+        self._acct_who = Gtk.Label(label="Sign in"); self._acct_who.add_css_class("acct-who")
+        self._acct_who.set_ellipsize(3); self._acct_who.set_max_width_chars(24)
+        caret = Gtk.Image.new_from_icon_name("pan-down-symbolic"); caret.add_css_class("caret")
+        acctbox.append(self._avatar_lbl); acctbox.append(self._acct_who); acctbox.append(caret)
+        menu_btn.set_child(acctbox)
+
         pop = Gtk.Popover()
         pbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        pbox.set_margin_top(6); pbox.set_margin_bottom(6)
-        pbox.set_margin_start(6); pbox.set_margin_end(6)
-        setbtn = Gtk.Button(label="Default settings…")
-        setbtn.add_css_class("flat")
+        for m in ("top", "bottom", "start", "end"):
+            getattr(pbox, f"set_margin_{m}")(6)
+
+        # Appearance: System / Light / Dark (remembered), applied live.
+        appr = Gtk.Label(label="APPEARANCE", xalign=0); appr.add_css_class("menu-head")
+        appr.set_margin_start(4); appr.set_margin_top(2)
+        pbox.append(appr)
+        seg = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, homogeneous=True)
+        seg.add_css_class("linked"); seg.set_margin_bottom(4)
+        cur_theme = self._settings.get("_theme") or "system"
+        first = None
+        for key, label in (("system", "System"), ("light", "Light"), ("dark", "Dark")):
+            b = Gtk.ToggleButton(label=label)
+            if first is None:
+                first = b
+            else:
+                b.set_group(first)
+            b.set_active(key == cur_theme)
+            b.connect("toggled", lambda btn, k=key: btn.get_active() and self._set_theme(k))
+            seg.append(b)
+        pbox.append(seg)
+        pbox.append(Gtk.Separator())
+
+        setbtn = Gtk.Button(label="Default settings…"); setbtn.add_css_class("flat")
         setbtn.connect("clicked", lambda *_: (pop.popdown(), self._open_settings(None)))
         pbox.append(setbtn)
         pbox.append(Gtk.Separator())
-        signout = Gtk.Button(label="Sign out")
-        signout.add_css_class("flat")
-        signout.set_sensitive(False)  # nothing to sign out of until signed in
+        signout = Gtk.Button(label="Sign out"); signout.add_css_class("flat")
+        signout.set_sensitive(False)
         signout.connect("clicked", lambda *_: (pop.popdown(), self._sign_out()))
         self._signout_item = signout
         pbox.append(signout)
         pop.set_child(pbox)
         menu_btn.set_popover(pop)
+
+        self.refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
+        self.refresh_btn.add_css_class("iconbtn")
+        self.refresh_btn.set_tooltip_text("Refresh workspaces")
+        self.refresh_btn.connect("clicked", lambda *_: self._reload_feed())
+
         hb.pack_end(menu_btn)
+        hb.pack_end(self.refresh_btn)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.stack.add_css_class("avd-page")
         self.win.set_child(self.stack)
 
-        # sign-in page
-        signin = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        signin.set_valign(Gtk.Align.CENTER)
-        lbl = Gtk.Label(label="Sign in to see your workspaces")
-        btn = Gtk.Button(label="Sign in")
-        btn.add_css_class("suggested-action")
-        btn.set_halign(Gtk.Align.CENTER)
+        # ---- sign-in hero ---------------------------------------------------
+        signin = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        signin.add_css_class("avd-page")
+        signin.set_valign(Gtk.Align.CENTER); signin.set_halign(Gtk.Align.CENTER)
+        bm = Gtk.Image.new_from_icon_name("computer-symbolic"); bm.set_pixel_size(32)
+        bm.add_css_class("bigmark"); bm.set_margin_bottom(14); bm.set_halign(Gtk.Align.CENTER)
+        h1 = Gtk.Label(label="Sign in to your workspaces"); h1.add_css_class("hero-title")
+        h2 = Gtk.Label(label="Connect your Microsoft work account to see the desktops "
+                             "and apps you're entitled to.")
+        h2.add_css_class("hero-sub"); h2.set_wrap(True); h2.set_justify(Gtk.Justification.CENTER)
+        h2.set_max_width_chars(38); h2.set_margin_top(4)
+        btn = Gtk.Button(label="Sign in with Microsoft"); btn.add_css_class("msbtn")
+        btn.set_halign(Gtk.Align.CENTER); btn.set_margin_top(20)
         btn.connect("clicked", lambda *_: self._interactive_signin())
-        signin.append(lbl)
-        signin.append(btn)
+        note = Gtk.Label(label="Unofficial client · not affiliated with or endorsed by Microsoft")
+        note.add_css_class("hero-note"); note.set_margin_top(24)
+        for w in (bm, h1, h2, btn, note):
+            signin.append(w)
         self.stack.add_named(signin, "signin")
 
-        # workspaces page
+        # ---- workspaces page ------------------------------------------------
         wp = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wp.add_css_class("avd-page")
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        for m, v in (("top", 18), ("start", 22), ("end", 22), ("bottom", 4)):
+            getattr(head, f"set_margin_{m}")(v)
+        sh = Gtk.Label(label="YOUR WORKSPACES", xalign=0); sh.add_css_class("section-h")
+        sh.set_hexpand(True)
+        self._count_lbl = Gtk.Label(label="", xalign=1); self._count_lbl.add_css_class("count")
+        head.append(sh); head.append(self._count_lbl)
+        wp.append(head)
+
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sw.set_vexpand(True)
         self.grid = Gtk.FlowBox(valign=Gtk.Align.START, max_children_per_line=5,
-                                min_children_per_line=2, row_spacing=8,
-                                column_spacing=8, homogeneous=True,
+                                min_children_per_line=2, row_spacing=14,
+                                column_spacing=14, homogeneous=True,
                                 selection_mode=Gtk.SelectionMode.NONE)
-        self.grid.set_margin_top(12); self.grid.set_margin_bottom(12)
-        self.grid.set_margin_start(12); self.grid.set_margin_end(12)
+        self.grid.set_margin_top(8); self.grid.set_margin_bottom(18)
+        self.grid.set_margin_start(22); self.grid.set_margin_end(22)
         self.grid.connect("child-activated", self._on_tile_activated)
         sw.set_child(self.grid)
-        # Connecting overlay: a centered spinner + label shown over the grid
-        # while a session is establishing (silent AAD + RDP handshake), until
-        # the desktop logs on.
+
+        # Connecting overlay: centered spinner card shown while a session is
+        # establishing (silent AAD + RDP handshake), until the desktop logs on.
         overlay = Gtk.Overlay()
         overlay.set_vexpand(True)
         overlay.set_child(sw)
-        cbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        cbox.set_halign(Gtk.Align.CENTER)
-        cbox.set_valign(Gtk.Align.CENTER)
+        cbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        cbox.set_halign(Gtk.Align.CENTER); cbox.set_valign(Gtk.Align.CENTER)
         cbox.add_css_class("connect-card")
-        self._connect_spinner = Gtk.Spinner()
-        self._connect_spinner.set_size_request(40, 40)
-        self._connect_label = Gtk.Label(label="Connecting…")
-        self._connect_label.add_css_class("connect-label")
-        cbox.append(self._connect_spinner)
-        cbox.append(self._connect_label)
+        self._connect_spinner = Gtk.Spinner(); self._connect_spinner.set_size_request(42, 42)
+        self._connect_label = Gtk.Label(label="Connecting…"); self._connect_label.add_css_class("connect-label")
+        csub = Gtk.Label(label="Securing your session"); csub.add_css_class("connect-sub")
+        cbox.append(self._connect_spinner); cbox.append(self._connect_label); cbox.append(csub)
         cbox.set_visible(False)
-        cbox.set_can_target(False)   # never intercept clicks on the grid
+        cbox.set_can_target(False)
         self._connect_overlay = cbox
         overlay.add_overlay(cbox)
         wp.append(overlay)
-        self.status = Gtk.Label(label="", xalign=0)
-        self.status.add_css_class("status")
-        wp.append(self.status)
+
+        # footer: live dot · status · version
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        foot.add_css_class("foot")
+        self._livedot = Gtk.Box(); self._livedot.add_css_class("livedot")
+        self._livedot.set_valign(Gtk.Align.CENTER)
+        self.status = Gtk.Label(label="", xalign=0); self.status.add_css_class("status")
+        self.status.set_hexpand(True)
+        ver = Gtk.Label(label="v" + APP_VERSION, xalign=1); ver.add_css_class("ver")
+        foot.append(self._livedot); foot.append(self.status); foot.append(ver)
+        wp.append(foot)
         self.stack.add_named(wp, "workspaces")
 
         # busy page
         busy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        busy.add_css_class("avd-page")
         busy.set_valign(Gtk.Align.CENTER)
         sp = Gtk.Spinner(); sp.start()
         busy.append(sp)
@@ -320,6 +574,18 @@ class AvdApp(Gtk.Application):
     # ---- helpers (main thread) --------------------------------------------
     def _set_status(self, text):
         GLib.idle_add(lambda: self.status.set_text(text) if self.status else None)
+
+    def _update_account(self, who):
+        """Fill the header account chip: email + a 2-letter avatar."""
+        if not who or "@" not in who:
+            self._acct_who.set_text("Sign in")
+            self._avatar_lbl.set_text("?")
+            return
+        self._acct_who.set_text(who)
+        user = who.split("@", 1)[0]
+        parts = _re.split(r"[.\-_]+", user)
+        initials = (parts[0][:1] + (parts[1][:1] if len(parts) > 1 else user[1:2]))
+        self._avatar_lbl.set_text(initials.upper() or "?")
 
     def _set_connecting(self, res_id, title, on):
         """Show/hide the centered 'Connecting…' spinner overlay. Safe to call
@@ -604,7 +870,10 @@ class AvdApp(Gtk.Application):
             self.grid.append(ch)
             self._tiles.append(ch)
         who = af.UPN or "your account"
-        self.status.set_text(f"{len(resources)} workspaces · signed in as {who}")
+        self.status.set_text(f"Signed in as {who}")
+        n = len(resources)
+        self._count_lbl.set_text(f"{n} resource" + ("" if n == 1 else "s"))
+        self._update_account(who)
         self.stack.set_visible_child_name("workspaces")
         if self._signout_item is not None:
             self._signout_item.set_sensitive(True)
@@ -620,37 +889,59 @@ class AvdApp(Gtk.Application):
                 self._on_tile_activated(self.grid, ch)
 
     def _make_tile(self, res):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        box.add_css_class("tile")
+        is_desktop = res["type"] == "Desktop"
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
+        tile.add_css_class("tile")
+
+        # top row: tinted icon plate (left) + status pill (top-right)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        ic = Gtk.Box(); ic.add_css_class("ic")
+        ic.add_css_class("desktop" if is_desktop else "app")
+        ic.set_halign(Gtk.Align.START); ic.set_valign(Gtk.Align.CENTER)
+        ic.set_size_request(52, 52)          # fixed square, so the glyph centers
         img = Gtk.Image.new_from_icon_name(
-            "computer" if res["type"] == "Desktop" else "application-x-executable")
-        img.set_pixel_size(64)
-        title = Gtk.Label(label=res["title"])
-        title.add_css_class("tile-title")
-        title.set_wrap(True); title.set_justify(Gtk.Justification.CENTER)
-        title.set_max_width_chars(16)
-        sub = Gtk.Label(label=res["type"])
-        sub.add_css_class("tile-sub")
-        state = Gtk.Label(label="")
-        state.add_css_class("tile-state")
-        state.set_visible(False)  # shown only when there's a state
-        box.append(img)
-        box.append(title)
-        box.append(sub)
-        box.append(state)
+            "computer-symbolic" if is_desktop else "view-grid-symbolic")
+        img.set_pixel_size(26)
+        img.set_hexpand(True); img.set_vexpand(True)
+        img.set_halign(Gtk.Align.CENTER); img.set_valign(Gtk.Align.CENTER)
+        ic.append(img)
+        pill = Gtk.Label(label="")
+        pill.add_css_class("status-pill")
+        pill.set_valign(Gtk.Align.START)
+        pill.set_visible(False)
+        spacer = Gtk.Box(); spacer.set_hexpand(True)
+        top.append(ic); top.append(spacer); top.append(pill)
+
+        # meta: title + type chip
+        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        title = Gtk.Label(label=res["title"], xalign=0); title.add_css_class("tname")
+        title.set_wrap(True); title.set_max_width_chars(18); title.set_lines(2)
+        title.set_ellipsize(3)
+        chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        if not is_desktop:
+            chip.add_css_class("chip-app")
+        chip.set_halign(Gtk.Align.START)
+        dot = Gtk.Box(); dot.add_css_class("chipdot"); dot.set_valign(Gtk.Align.CENTER)
+        clabel = Gtk.Label(label="DESKTOP" if is_desktop else "REMOTE APP")
+        clabel.add_css_class("chiplabel")
+        chip.append(dot); chip.append(clabel)
+        meta.append(title); meta.append(chip)
+
+        tile.append(top); tile.append(meta)
+
         child = Gtk.FlowBoxChild()
-        child.set_child(box)
+        child.set_child(tile)
         child._res = res
         child._img = img
-        child._state = state
+        child._tile = tile
+        child._pill = pill
         child._proc = None
         child._launching = False
         child.set_tooltip_text(
             f"{res['title']} — {res['tenant']}\nDouble-click to connect · "
             f"right-click for this workspace's settings")
-        # Right-click a tile → per-workspace display settings (remembered per id)
         rclick = Gtk.GestureClick()
-        rclick.set_button(3)  # secondary button
+        rclick.set_button(3)
         rclick.connect("pressed", lambda g, n, x, y, r=res: self._open_settings(r))
         child.add_controller(rclick)
         return child
@@ -662,19 +953,25 @@ class AvdApp(Gtk.Application):
         return None
 
     def _set_tile_state(self, res_id, text, css):
+        # Render session state as a corner pill: amber "Connecting", green
+        # "Connected", hidden when idle. (css: state-connecting/connected/ended)
         def apply():
             ch = self._child_for(res_id)
             if not ch:
                 return
-            for cls in ("state-connecting", "state-connected", "state-ended"):
-                ch._state.remove_css_class(cls)
-            if text:
-                if css:
-                    ch._state.add_css_class(css)
-                ch._state.set_text(text)
-                ch._state.set_visible(True)
+            pill, tile = ch._pill, ch._tile
+            pill.remove_css_class("pill-connecting")
+            tile.remove_css_class("tile-connected")
+            if css == "state-connected":
+                pill.set_text("CONNECTED")
+                pill.set_visible(True)
+                tile.add_css_class("tile-connected")
+            elif css == "state-connecting":
+                pill.set_text("CONNECTING")
+                pill.add_css_class("pill-connecting")
+                pill.set_visible(True)
             else:
-                ch._state.set_visible(False)
+                pill.set_visible(False)
         GLib.idle_add(apply)
 
     def _load_icons(self, resources):

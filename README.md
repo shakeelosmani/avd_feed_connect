@@ -15,9 +15,11 @@ Microsoft's Windows App), and connect over RDP.
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/workspaces.png" width="720" alt="Workspace grid">
+  <img src="screenshots/workspaces.png" width="49%" alt="Workspace grid — light">
+  <img src="screenshots/workspaces-dark.png" width="49%" alt="Workspace grid — dark">
   <br>
-  <em>Your Azure Virtual Desktop workspaces, discovered automatically after sign-in.</em>
+  <em>Your Azure Virtual Desktop workspaces after sign-in — light and dark
+  (switchable in-app, or follow the system). Example data shown.</em>
 </p>
 
 ## Why
