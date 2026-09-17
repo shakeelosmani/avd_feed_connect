@@ -163,8 +163,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/shakeelosmani/avd_feed_connect.git
-        tag: v0.3.7
-        commit: 919997ed5b6e99e472fbf3c5fd2864c4f371ad41
+        tag: v0.3.8
+        commit: b4c3efced756d5363e80c79a1c7d7234dda21f62
         x-checker-data:
           type: git
           tag-pattern: "^v([\\d.]+)$"
