@@ -7,22 +7,22 @@
 #     call FREEZES the whole session.
 #   * the camera-redirection channel (-DCHANNEL_RDPECAM_CLIENT=ON).
 #
-# Builds and runs on GNOME 49; every source is pinned to a commit for
+# Builds and runs on GNOME 51; every source is pinned to a commit for
 # reproducibility.
 app-id: io.github.shakeelosmani.avd_feed_connect
 runtime: org.gnome.Platform
-runtime-version: '49'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: avd-feed-connect
 
 finish-args:
   - --share=network                 # feed discovery, AAD sign-in, RDP gateway
   - --share=ipc
-  # Grant the real X11 socket (not fallback-x11): connections force GDK_BACKEND=x11
-  # for sdl-freerdp's stability, so the X11/XWayland socket must be available even
-  # on a Wayland host (fallback-x11 exposes it only when there is no Wayland).
+  # Real X11 socket (not fallback-x11): the bundled FreeRDP SDL client is
+  # unstable on native Wayland, so connections are forced onto X11/XWayland and
+  # the socket must exist even on a Wayland host. The launcher GUI renders via
+  # XWayland there too. (Only one graphics socket — Flathub disallows x11+wayland.)
   - --socket=x11
-  - --socket=wayland
   - --socket=pulseaudio             # RDP audio playback + microphone redirect
   - --device=dri                    # GPU for the RDP graphics pipeline
   - --device=all                    # webcam (camera redirection) + input
@@ -31,11 +31,10 @@ finish-args:
   - --talk-name=org.freedesktop.secrets         # login keyring (libsecret) for the refresh token
   - --env=LD_LIBRARY_PATH=/app/lib
 
-# NOTE on ffmpeg: FreeRDP is built WITH_FFMPEG against the runtime's own ffmpeg
-# (the GNOME 49 / freedesktop 25.08 base ships libav*). The org.freedesktop
-# .Platform.ffmpeg-full extension is intentionally NOT used because it is not yet
-# published for the 25.08 base. If the audin microphone path needs the AAC
-# encoder and the base ffmpeg lacks it, add a bundled ffmpeg module here.
+# NOTE on ffmpeg: FreeRDP is built WITH_FFMPEG against the GNOME runtime's own
+# ffmpeg (its freedesktop base ships libav*). The org.freedesktop.Platform
+# .ffmpeg-full extension is intentionally NOT used. If the audin microphone path
+# needs the AAC encoder and the base ffmpeg lacks it, add a bundled ffmpeg here.
 
 cleanup:
   - /include
@@ -82,7 +81,7 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DENABLE_CJSON_TEST=OFF
       - -DBUILD_SHARED_AND_STATIC_LIBS=OFF
-      # cJSON's cmake_minimum_required predates CMake 3.5, which the GNOME 49
+      # cJSON's cmake_minimum_required predates CMake 3.5, which the GNOME
       # SDK's CMake refuses; allow it to configure anyway.
       - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     sources:

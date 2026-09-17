@@ -89,7 +89,7 @@ flatpak run io.github.shakeelosmani.avd_feed_connect
 ```
 
 This adds a small signed remote so the app also **updates** with
-`flatpak update`. The GNOME 49 runtime is pulled from Flathub automatically.
+`flatpak update`. The GNOME 51 runtime is pulled from Flathub automatically.
 
 **Alternative — single-file bundle** from the
 [latest release](https://github.com/shakeelosmani/avd_feed_connect/releases/latest):
@@ -103,7 +103,7 @@ flatpak install --user avd_feed_connect.flatpak
 ### Build it yourself
 
 ```bash
-flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.flatpak.Builder
+flatpak install flathub org.gnome.Platform//51 org.gnome.Sdk//51 org.flatpak.Builder
 flatpak run org.flatpak.Builder --user --install --force-clean build-dir \
   io.github.shakeelosmani.avd_feed_connect.yml
 flatpak run io.github.shakeelosmani.avd_feed_connect

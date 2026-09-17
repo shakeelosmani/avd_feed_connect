@@ -19,7 +19,7 @@ A GTK4 + WebKitGTK 6.0 front-end over the feed-discovery logic in avdfeed.py:
 The connection itself is still sdl-freerdp with /gateway:type:arm /sec:aad, so
 camera/mic/gfx behave exactly as before.
 
-Runtime: PyGObject with Gtk 4.0, WebKit 6.0 (all in the GNOME 49 Flatpak
+Runtime: PyGObject with Gtk 4.0, WebKit 6.0 (all in the GNOME 51 Flatpak
 runtime). No system-tray (GTK4 has no in-process tray; the GTK3
 AppIndicator can't be mixed into a GTK4 process).
 """
@@ -60,7 +60,7 @@ import avdfeed as af  # noqa: E402
 
 APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.3.7"
+APP_VERSION = "0.3.8"
 
 # Persist the last discovered workspaces so reopening shows them instantly
 # (like the Windows App), instead of bouncing to sign-in on every launch.
