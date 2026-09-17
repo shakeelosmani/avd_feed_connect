@@ -13,7 +13,7 @@
 # reproducible, offline build.
 app-id: io.github.shakeelosmani.avd_feed_connect
 runtime: org.gnome.Platform
-runtime-version: '49'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: avd-feed-connect
 
@@ -84,7 +84,7 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DENABLE_CJSON_TEST=OFF
       - -DBUILD_SHARED_AND_STATIC_LIBS=OFF
-      # cJSON's cmake_minimum_required predates CMake 3.5, which the GNOME 49
+      # cJSON's cmake_minimum_required predates CMake 3.5, which the GNOME
       # SDK's CMake refuses; allow it to configure anyway.
       - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     sources:

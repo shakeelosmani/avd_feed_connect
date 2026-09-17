@@ -9,9 +9,9 @@ Manifest: [`io.github.shakeelosmani.avd_feed_connect.yml`](./io.github.shakeelos
 ## Status vs the Flathub linter
 - ✅ Manifest passes `flatpak-builder-lint manifest` (no errors).
 - ✅ MetaInfo passes `flatpak-builder-lint appstream` (validation successful).
-- ⚠️ Only note left: linter suggests a newer runtime (GNOME 49 → 51). Non-fatal;
-  GNOME 49 is supported. Optional to bump before submitting (needs a rebuild +
-  quick test against the newer runtime).
+- ✅ Runtime is **GNOME 51** (latest). Clean-built against it and verified the
+  GTK4 / WebKit6 / Secret typelibs are present, so the linter now reports
+  **no errors, warnings, or info at all**.
 - ℹ️ Minor, non-blocking: the metainfo still has a deprecated `<developer_name>`
   tag — worth removing in the next app release, but it does not block Flathub.
 
