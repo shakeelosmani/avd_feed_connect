@@ -902,7 +902,7 @@ class AvdApp(Gtk.Application):
             argv.append("/d:")
         scale = os.environ.get("AVD_SCALE") or self._eff("scale", res) \
             or str(100 * max(1, self._scale))
-        argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
+        argv += ["/sound:sys:pulse", "/microphone", "/cert:tofu",
                  f"/scale-desktop:{scale}", "/log-level:info",
                  # bandwidth/quality + resilience + keepalive:
                  "+compression", "+fonts",

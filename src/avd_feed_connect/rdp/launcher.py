@@ -45,7 +45,7 @@ def build_argv(sdl, path, upn):
     argv = [sdl, path, "/gateway:type:arm", "/sec:aad"]
     if upn:
         argv.append(f"/u:{upn}")
-    argv += ["/sound:sys:pulse", "/microphone", "/cert:ignore",
+    argv += ["/sound:sys:pulse", "/microphone", "/cert:tofu",
              "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
     return argv
 
