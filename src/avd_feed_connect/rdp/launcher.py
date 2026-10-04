@@ -132,7 +132,7 @@ def apply_client_hotkeys(mode, path=None):
 def build_argv(sdl, path, upn):
     """Assemble the sdl-freerdp command line for a full-screen CLI connection."""
     decision = resolve_security(path)
-    argv = [sdl, path, "/gateway:type:arm", f"/sec:{decision.mode}"]
+    argv = [sdl, path, f"/gateway:{config.gateway_arg()}", f"/sec:{decision.mode}"]
     if decision.mode == "nla":
         argv.append("/d:")
     if upn:

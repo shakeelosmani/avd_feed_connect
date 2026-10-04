@@ -1891,7 +1891,8 @@ class AvdApp(Gtk.Application):
         logpath = session_log_path(
             session.client.output_dir,
             f"session_{safe}_{hashlib.sha256(res['id'].encode()).hexdigest()[:16]}")
-        argv = [config.SDL, path, "/gateway:type:arm", "/sec:nla" if nla else "/sec:aad"]
+        argv = [config.SDL, path, f"/gateway:{config.gateway_arg()}",
+                "/sec:nla" if nla else "/sec:aad"]
         if session.client.upn:
             argv.append(f"/u:{session.client.upn}")
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
