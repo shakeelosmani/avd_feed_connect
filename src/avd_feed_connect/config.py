@@ -9,6 +9,7 @@ instead, never here.
 
 import os
 import shutil
+import sys
 import urllib.parse
 
 # Multi-tenant by default: "organizations" lets any work/school account sign in
@@ -18,12 +19,47 @@ import urllib.parse
 # the login hint (see OAuthClient).
 TENANT = os.environ.get("AVD_TENANT", "organizations")
 CLIENT_ID = "a85cf173-4192-42f8-81fa-777a763e6e2c"  # Microsoft Remote Desktop (public)
-SCOPE = "https://www.wvd.microsoft.com/.default offline_access openid profile"
-DISCOVERY = "https://rdweb.wvd.microsoft.com/api/arm/feeddiscovery"
-LOGIN = f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0"
+
+# Azure "sovereign" clouds each have their own AVD feed host, Entra sign-in
+# authority, and AVD resource URI — and their own set of hosts a bearer token /
+# the sign-in WebView may talk to. Everything cloud-specific is grouped here and
+# selected as one matched set via AVD_CLOUD (default "commercial"), so the feed,
+# the token endpoints, and the host allowlists always agree. `trusted` lists the
+# dot-suffixes a bearer token may be sent to for that cloud (see is_trusted_url).
+CLOUDS = {
+    "commercial": dict(
+        feed="rdweb.wvd.microsoft.com",
+        authority="login.microsoftonline.com",
+        resource="https://www.wvd.microsoft.com/.default",
+        trusted=(".microsoft.com", ".microsoftonline.com"),
+    ),
+    # Azure Government (US Gov — GCC High and DoD share these endpoints).
+    "usgov": dict(
+        feed="rdweb.wvd.azure.us",
+        authority="login.microsoftonline.us",
+        resource="https://www.wvd.azure.us/.default",
+        trusted=(".azure.us", ".microsoftonline.us"),
+    ),
+    # Azure China (operated by 21Vianet).
+    "china": dict(
+        feed="rdweb.wvd.azure.cn",
+        authority="login.partner.microsoftonline.cn",
+        resource="https://www.wvd.azure.cn/.default",
+        trusted=(".azure.cn", ".microsoftonline.cn", ".chinacloudapi.cn"),
+    ),
+}
+CLOUD = os.environ.get("AVD_CLOUD", "commercial").strip().lower()
+if CLOUD not in CLOUDS:
+    print(f"config: unknown AVD_CLOUD={CLOUD!r}; using 'commercial'", file=sys.stderr)
+    CLOUD = "commercial"
+_C = CLOUDS[CLOUD]
+
+SCOPE = f"{_C['resource']} offline_access openid profile"
+DISCOVERY = f"https://{_C['feed']}/api/arm/feeddiscovery"
+LOGIN = f"https://{_C['authority']}/{TENANT}/oauth2/v2.0"
 # Registered redirect for the public MS Remote Desktop client; the browser
 # lands here (a blank page) with ?code=… after an interactive sign-in.
-REDIRECT = "https://login.microsoftonline.com/common/oauth2/nativeclient"
+REDIRECT = f"https://{_C['authority']}/common/oauth2/nativeclient"
 # The feed service rejects unknown clients ("INCOMPATIBLE_CLIENT_VERSION /
 # Client did not send any User Agent approved header"); this is exactly the
 # X-MS-User-Agent the web client sends (clientType/clientVersion sdkType/sdk).
@@ -31,6 +67,20 @@ MS_USER_AGENT = "com.microsoft.rdc.html/2.0.79.2 rdhtml-sdk/2.0.4"
 
 ACCEPT_DISCOVERY = "application/x-msts-radc-discovery+xml,text/xml"
 ACCEPT_FEED = "application/x-msts-radc+xml;radc_schema_version=2.0,text/xml"
+
+
+def gateway_arg():
+    """The value for FreeRDP's ``/gateway:``. Commercial keeps the bare
+    ``type:arm`` (unchanged behaviour); a sovereign cloud appends the AAD
+    authority and resource scope so FreeRDP's connection-time token targets that
+    cloud's Entra instead of the commercial default it ships with
+    (``login.microsoftonline.com`` / ``www.wvd.microsoft.com``). The scope is
+    URL-encoded as FreeRDP's ``avd-scope:`` sub-option expects."""
+    arg = "type:arm"
+    if CLOUD != "commercial":
+        scope = urllib.parse.quote(SCOPE, safe="")
+        arg += f",ad:{_C['authority']},avd-scope:{scope}"
+    return arg
 
 HOME = os.path.expanduser("~")
 
@@ -54,7 +104,7 @@ SDL = find_sdl_freerdp()
 # Only needed unpackaged (Flatpak resolves libs via rpath); empty = don't touch.
 SDL_LIBS = os.environ.get("AVD_SDL_LIBS", os.path.join(HOME, "opt", "sdl3", "lib"))
 
-AAD_LOGIN_HOST = "login.microsoftonline.com"
+AAD_LOGIN_HOST = _C["authority"]
 
 
 def is_aad_login_url(url):
@@ -69,8 +119,9 @@ def is_aad_login_url(url):
 
 
 # Hosts a bearer token may be sent to. Feed XML supplies the feed, .rdp and icon
-# URLs, so they are checked before the Authorization header is attached.
-TRUSTED_SUFFIXES = (".microsoft.com", ".microsoftonline.com")
+# URLs, so they are checked before the Authorization header is attached. The set
+# is per-cloud (see CLOUDS) so a sovereign cloud accepts only its own hosts.
+TRUSTED_SUFFIXES = _C["trusted"]
 
 
 def is_trusted_url(url):
