@@ -71,7 +71,7 @@ af = AvdClient()
 
 APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.4.7"
+APP_VERSION = "0.4.8"
 
 
 

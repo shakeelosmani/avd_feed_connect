@@ -60,6 +60,18 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.4.8" date="2026-10-07">
+      <description>
+        <ul>
+          <li>Fixed copying text from the local machine into the remote session
+          when running under Wayland (XWayland): pasted text now arrives
+          correctly instead of silently failing. The 0.4.3 clipboard fix only
+          covered native X11 sessions; this backports the later FreeRDP fix that
+          also handles the XWayland clipboard format. Thanks to Ewerton Mattos
+          for the fix.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.4.7" date="2026-10-05">
       <description>
         <ul>
