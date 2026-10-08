@@ -60,6 +60,31 @@ connection token is acquired with no visible prompt; a window only appears if
 MFA/consent is genuinely required (after a short delay). This also removes a
 whole class of blank/second-window bugs the bundled FreeRDP webview could hit.
 
+## Tray icon
+
+The app puts an icon in the system tray. Right-click it for every resource,
+grouped by workspace (`●` = connected), each with a submenu:
+**Connect**, **Connect (windowed)** (a resizable window instead of full
+screen), or — for a running session — **Focus window** and **Disconnect**.
+Left-click shows the main window. **Quit** from the tray menu exits.
+
+Two options in the account menu, under **System tray** (both off by default,
+so closing the window still quits the app):
+
+- **Keep running in the tray when closed** — the window's close button hides it
+  to the tray; sessions and the sign-in refresh keep running.
+- **Start in the tray** — with a saved session, the app starts with only the
+  tray icon (handy for autostart). A first run still shows sign-in.
+
+The tray works wherever the desktop hosts StatusNotifierItem icons: KDE
+Plasma, Xfce, Cinnamon, MATE, LXQt, Budgie, and wlroots/Hyprland bars with a
+tray module (e.g. Waybar's `tray`). Stock GNOME needs the *AppIndicator and
+KStatusNotifierItem Support* extension (Ubuntu ships it). Without a tray host
+the options are greyed out, closing the window quits, and the app always starts
+with its window. **Focus window** is a request to the window
+manager; on Hyprland it needs `misc:focus_on_activate = true`. Set
+`AVD_TRAY=0` to turn the tray off.
+
 ## The bundled FreeRDP
 
 The Flatpak builds FreeRDP from upstream `master` with **camera redirection**
@@ -264,6 +289,7 @@ Both methods write the same setting.
 | `AVD_MULTIMON` | Force multi-monitor on (`1`/`on`) or off (`0`/`off`). Overrides the auto monitor-count detection. |
 | `AVD_EXTRA_ARGS` | Extra `sdl-freerdp` flags appended verbatim, e.g. `"/gfx"`, `"/network:auto"`, or your own `/multimon` / `-multimon` (which then wins over the auto choice). |
 | `AVD_SDL_FREERDP` | Path to the `sdl-freerdp` binary (defaults to the bundled one). |
+| `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
 
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.

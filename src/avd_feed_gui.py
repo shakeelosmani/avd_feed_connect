@@ -20,9 +20,14 @@ avd_feed_connect package (see its client.AvdClient facade):
 The connection itself is still sdl-freerdp with /gateway:type:arm /sec:aad, so
 camera/mic/gfx behave exactly as before.
 
+A tray icon (gui.tray, StatusNotifierItem over plain D-Bus — GTK4 has no tray
+API) lists every resource by workspace with Connect / Connect (windowed) /
+Focus window / Disconnect. Opt-in (account menu), while a tray host is present:
+closing the window hides it to the tray, and the app can start hidden there.
+AVD_TRAY=0 turns the tray off.
+
 Runtime: PyGObject with Gtk 4.0, WebKit 6.0 (all in the GNOME 51 Flatpak
-runtime). No system-tray (GTK4 has no in-process tray; the GTK3
-AppIndicator can't be mixed into a GTK4 process).
+runtime).
 """
 
 import json
@@ -37,6 +42,7 @@ import hashlib
 import base64
 import secrets
 import shutil
+import signal
 import subprocess
 import pty
 import select
@@ -48,10 +54,17 @@ import select
 # initializes its renderer. setdefault so a user can still force the GPU path.
 os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 
-import gi
+APP_ID = "io.github.shakeelosmani.avd_feed_connect"
+
+import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gtk, GLib, Gdk, Gio  # noqa: E402
+from gi.repository import GLib  # noqa: E402
+# The X11 window class comes from the program name, which is otherwise
+# "python3". Use the app id so docks match the .desktop file and window
+# managers can target the window with rules. Must run before GTK initializes.
+GLib.set_prgname(APP_ID)
+from gi.repository import Gtk, Gdk, Gio  # noqa: E402
 from gi.repository import WebKit  # noqa: E402
 
 # The feed/auth package is installed as a sibling directory next to this file.
@@ -63,13 +76,13 @@ from avd_feed_connect.rdp.launcher import (  # noqa: E402
     apply_client_hotkeys, build_display_args)
 from avd_feed_connect.gui.theme import CSS_BASE, PALETTE_DARK, PALETTE_LIGHT  # noqa: E402
 from avd_feed_connect.gui.demo import demo_resources  # noqa: E402
-from avd_feed_connect.gui import storage  # noqa: E402
+from avd_feed_connect.gui import storage, tray_menu, x11focus  # noqa: E402
+from avd_feed_connect.gui.tray import TrayIcon  # noqa: E402
 
 # One process-wide client holds the signed-in session (UPN, tokens); the GUI
 # reads and updates it through this single instance.
 af = AvdClient()
 
-APP_ID = "io.github.shakeelosmani.avd_feed_connect"
 APP_NAME = "AVD Feed + Connect Linux"
 APP_VERSION = "0.4.8"
 
@@ -101,10 +114,14 @@ class AvdApp(Gtk.Application):
         self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
         self._n_monitors = 1        # how many monitors the compositor reports
         self._settings = storage.load_settings()   # {"_default": {...}, "<res id>": {...}}
-        self._pending_launch = None  # resource id to connect to once sign-in completes
+        self._pending_launch = None  # (resource id, windowed) to connect once sign-in completes
         self._signin_dlg = None      # the open sign-in window, if any
         self._web_session_obj = None  # shared persistent WebKit session (SSO cookies)
         self._connecting = set()      # resource ids currently establishing a session
+        self._tray = None             # TrayIcon, unless AVD_TRAY=0 or no session bus
+        self._sessions = {}           # resource id → "connecting"/"connected" (tray state)
+        self._tray_toggles = []       # account-menu tray options (need a tray host)
+        self._start_hidden_source = 0  # timeout giving up on "start in the tray"
 
     # ---- app lifecycle ----------------------------------------------------
     def do_activate(self):
@@ -112,8 +129,22 @@ class AvdApp(Gtk.Application):
             self.win.present()
             return
         self._build_ui()
-        self.win.present()
+        # "Start in the tray" only applies to a saved session (a first run must
+        # show sign-in) and only once a tray host accepts the icon; otherwise
+        # the window is shown after a short wait, as it would have been.
+        start_hidden = bool(self._settings.get("_start_in_tray")
+                            and not os.environ.get("AVD_DEMO")
+                            and storage.load_ws_cache()[0])
+        if not start_hidden:
+            self.win.present()
         self._detect_displays()
+        self._start_tray()
+        if start_hidden:
+            if self._tray:
+                self._start_hidden_source = GLib.timeout_add_seconds(
+                    3, self._start_hidden_timeout)
+            else:
+                self.win.present()
         # Dev/screenshot mode: show a fixed, anonymous sample feed (no network,
         # no sign-in). Used for documentation screenshots so they carry no real
         # account or org details. Never triggered in normal use.
@@ -143,14 +174,17 @@ class AvdApp(Gtk.Application):
         remote session matches it automatically (like the Windows App does):
         number of monitors → single vs multi-monitor, and the HiDPI scale."""
         try:
-            self._scale = self.win.get_scale_factor() or 1
-        except Exception:
-            self._scale = 1
-        try:
             mons = Gdk.Display.get_default().get_monitors()
             self._n_monitors = max(1, mons.get_n_items())
         except Exception:
-            self._n_monitors = 1
+            mons, self._n_monitors = None, 1
+        try:
+            if self.win.get_mapped() or not mons:
+                self._scale = self.win.get_scale_factor() or 1
+            else:   # started hidden in the tray: no window yet, ask the monitor
+                self._scale = mons.get_item(0).get_scale_factor() or 1
+        except Exception:
+            self._scale = 1
 
     def _background_refresh(self):
         """Silently refresh the token and re-fetch the feed, keeping the cached
@@ -209,6 +243,7 @@ class AvdApp(Gtk.Application):
         self.win = Gtk.ApplicationWindow(application=self, title=APP_NAME)
         self.win.add_css_class("avd")
         self.win.set_default_size(820, 600)
+        self.win.connect("close-request", self._on_close_request)
 
         # ---- header bar: brand (left) · refresh + account (right) -----------
         hb = Gtk.HeaderBar()
@@ -268,6 +303,22 @@ class AvdApp(Gtk.Application):
             b.connect("toggled", lambda btn, k=key: btn.get_active() and self._set_theme(k))
             seg.append(b)
         pbox.append(seg)
+        pbox.append(Gtk.Separator())
+
+        # System tray options (off by default, so closing still quits unless
+        # asked). Insensitive until a tray host shows our icon.
+        trayh = Gtk.Label(label="SYSTEM TRAY", xalign=0); trayh.add_css_class("menu-head")
+        trayh.set_margin_start(4); trayh.set_margin_top(2)
+        pbox.append(trayh)
+        for key, label in (("_close_to_tray", "Keep running in the tray when closed"),
+                           ("_start_in_tray", "Start in the tray")):
+            cb = Gtk.CheckButton(label=label)
+            cb.set_active(bool(self._settings.get(key)))
+            cb.set_sensitive(False)
+            cb.set_tooltip_text("Needs a system tray on your desktop")
+            cb.connect("toggled", lambda btn, k=key: self._set_tray_option(k, btn.get_active()))
+            pbox.append(cb)
+            self._tray_toggles.append(cb)
         pbox.append(Gtk.Separator())
 
         setbtn = Gtk.Button(label="Default settings…"); setbtn.add_css_class("flat")
@@ -541,7 +592,11 @@ class AvdApp(Gtk.Application):
             params["login_hint"] = af.upn   # preselect the known account in the picker
         url = config.LOGIN + "/authorize?" + urllib.parse.urlencode(params)
 
-        dlg = Gtk.Window(title="Sign in", transient_for=self.win, modal=True)
+        # With the main window hidden in the tray (e.g. a tray-initiated
+        # connect), show the sign-in on its own instead of surfacing the app:
+        # a standalone top-level, since a modal dialog needs a visible parent.
+        parent = self.win if self.win and self.win.get_visible() else None
+        dlg = Gtk.Window(title="Sign in", transient_for=parent, modal=parent is not None)
         dlg.set_default_size(520, 640)
         # Shared PERSISTENT session (SSO cookies kept on disk) so a re-auth is a
         # click-through and the connection-time token can be fetched silently.
@@ -673,6 +728,7 @@ class AvdApp(Gtk.Application):
         for ch in self._tiles:
             self.grid.remove(ch)
         self._tiles = []
+        self._tray_refresh()
 
     def _populate(self, resources):
         self._clear_tiles()
@@ -685,6 +741,7 @@ class AvdApp(Gtk.Application):
         n = len(resources)
         self._count_lbl.set_text(f"{n} resource" + ("" if n == 1 else "s"))
         self._update_account(who)
+        self._tray_refresh()
         self.stack.set_visible_child_name("workspaces")
         if self._signout_item is not None:
             self._signout_item.set_sensitive(True)
@@ -695,9 +752,9 @@ class AvdApp(Gtk.Application):
         # A connect that had to wait for sign-in resumes now, on the fresh tiles
         pending, self._pending_launch = self._pending_launch, None
         if pending:
-            ch = self._child_for(pending)
+            ch = self._child_for(pending[0])
             if ch:
-                self._on_tile_activated(self.grid, ch)
+                self._on_tile_activated(self.grid, ch, windowed=pending[1])
 
     def _make_tile(self, res):
         is_desktop = res["type"] == "Desktop"
@@ -767,6 +824,11 @@ class AvdApp(Gtk.Application):
         # Render session state as a corner pill: amber "Connecting", green
         # "Connected", hidden when idle. (css: state-connecting/connected/ended)
         def apply():
+            if css in ("state-connecting", "state-connected"):
+                self._sessions[res_id] = css[len("state-"):]
+            else:
+                self._sessions.pop(res_id, None)
+            self._tray_refresh()
             ch = self._child_for(res_id)
             if not ch:
                 return
@@ -819,7 +881,7 @@ class AvdApp(Gtk.Application):
                 GLib.idle_add(ch._img.set_from_paintable, tex)
 
     # ---- launch + live connection state -----------------------------------
-    def _on_tile_activated(self, flowbox, child):
+    def _on_tile_activated(self, flowbox, child, windowed=False):
         res = child._res
         # Guard synchronously on the main thread: the second click of a
         # double-click arrives before the launch thread has set child._proc, so
@@ -831,9 +893,10 @@ class AvdApp(Gtk.Application):
         self._set_tile_state(res["id"], "● Connecting…", "state-connecting")
         self.status.set_text(f"Connecting to {res['title']}…")
         self._set_connecting(res["id"], res["title"], True)
-        threading.Thread(target=self._launch, args=(child, res), daemon=True).start()
+        threading.Thread(target=self._launch, args=(child, res, windowed),
+                         daemon=True).start()
 
-    def _launch(self, child, res):
+    def _launch(self, child, res, windowed=False):
         if not self._ensure_token():
             # Session lapsed and can't refresh silently — re-auth on demand
             # (like the Windows App when you click a workspace after a while),
@@ -842,7 +905,7 @@ class AvdApp(Gtk.Application):
             self._set_connecting(res["id"], res["title"], False)
             self._set_tile_state(res["id"], "", None)
             self._set_status("Sign in to connect")
-            self._pending_launch = res["id"]   # connect automatically afterwards
+            self._pending_launch = (res["id"], windowed)   # connect automatically afterwards
             GLib.idle_add(self._interactive_signin)
             return
         try:
@@ -895,6 +958,10 @@ class AvdApp(Gtk.Application):
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
         # --- display config: env var > per-resource/default setting > auto ---
         extra = self._eff_extra(res)
+        if windowed:
+            # A resizable window instead of /f: build_display_args drops the
+            # fullscreen/smart-sizing/multimon flags and the feed's screen mode.
+            extra = (extra + " /dynamic-resolution").strip()
         # AVD NLA host pools reject FreeRDP's default "AzureAD" domain — both
         # reporters on issue #3 connect only with the domain cleared. Send an
         # empty domain so the user just types their password (a rare pool that
@@ -950,6 +1017,7 @@ class AvdApp(Gtk.Application):
             os.close(slave)
         child._proc = proc
         child._ptym = master
+        GLib.idle_add(self._tray_refresh)    # Focus/Disconnect now apply
         self._set_status(f"Launched {res['title']}")
         self._watch_session(child, res, proc, master, logpath)
 
@@ -1078,6 +1146,125 @@ class AvdApp(Gtk.Application):
         GLib.timeout_add(3000, show_if_pending)
         return False
 
+    # ---- tray icon ---------------------------------------------------------
+    def _start_tray(self):
+        if os.environ.get("AVD_TRAY", "").strip().lower() in ("0", "off", "false", "no"):
+            return
+        try:
+            conn = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION)
+        except GLib.Error:
+            return
+        # Monochrome "-symbolic" icon: tray hosts recolor it to match the bar.
+        self._tray = TrayIcon(conn, APP_ID, APP_NAME, APP_ID + "-symbolic",
+                              self._tray_icon_dir(),
+                              on_activate=self._show_window,
+                              on_action=self._on_tray_action,
+                              on_availability=self._on_tray_availability)
+        self._tray.start()
+        self._tray_refresh()
+
+    def _tray_icon_dir(self):
+        """A host-visible directory holding the tray icon file itself. Hosts
+        look IconName up in their own icon theme, which doesn't always include
+        Flatpak's exported icons (Omarchy's bar doesn't), so point them at it.
+        The Flatpak's tray/ dir has the icon both as <name>.svg and as <name>,
+        since Quickshell loads <dir>/<IconName> without adding an extension."""
+        try:
+            info = GLib.KeyFile()
+            info.load_from_file("/.flatpak-info", GLib.KeyFileFlags.NONE)
+            return os.path.join(info.get_string("Instance", "app-path"),
+                                "share/avd-feed-connect/tray")
+        except GLib.Error:
+            pass
+        # Unpackaged run: the icon sits at the top of the source tree.
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return root if os.path.exists(os.path.join(root, APP_ID + "-symbolic.svg")) else ""
+
+    def _tray_refresh(self):
+        """Rebuild the tray menu from the grid (main thread)."""
+        if not self._tray:
+            return False
+        resources = [c._res for c in self._tiles]
+        sessions = {}
+        for c in self._tiles:
+            rid = c._res["id"]
+            running = bool(c._proc and c._proc.poll() is None)
+            state = self._sessions.get(rid) or ("connecting" if c._launching else "idle")
+            sessions[rid] = {"state": state, "running": running}
+        self._tray.set_menu(tray_menu.build_menu(resources, sessions))
+        n = sum(1 for s in self._sessions.values() if s == "connected")
+        self._tray.set_tooltip(f"{n} session" + ("" if n == 1 else "s") + " connected"
+                               if n else "")
+        return False
+
+    def _show_window(self):
+        if self.win:
+            self.win.set_visible(True)
+            self.win.present()
+
+    def _set_tray_option(self, key, on):
+        """Persist a tray checkbox (close-to-tray / start-in-tray)."""
+        if on:
+            self._settings[key] = True
+        else:
+            self._settings.pop(key, None)
+        storage.save_settings(self._settings)
+
+    def _on_close_request(self, win):
+        # Opted in and a tray can bring it back: closing only hides the window
+        # (sessions and the token refresh keep running). Otherwise close quits.
+        if self._settings.get("_close_to_tray") and self._tray and self._tray.available:
+            win.set_visible(False)
+            return True
+        return False
+
+    def _start_hidden_timeout(self):
+        # Started in the tray, but no tray host took the icon: show the window.
+        self._start_hidden_source = 0
+        self._show_window()
+        return False
+
+    def _on_tray_availability(self, available):
+        for cb in self._tray_toggles:
+            cb.set_sensitive(available)
+            cb.set_tooltip_text(None if available else "Needs a system tray on your desktop")
+        if available and self._start_hidden_source:
+            # Started in the tray and the icon is up: stay hidden.
+            GLib.source_remove(self._start_hidden_source)
+            self._start_hidden_source = 0
+        # The tray host went away (e.g. the bar restarted or was closed): never
+        # leave the window hidden with no way back.
+        if not available and self.win and not self.win.get_visible():
+            self._show_window()
+
+    def _on_tray_action(self, action):
+        kind, rid = action[0], (action[1] if len(action) > 1 else None)
+        if kind == "show":
+            self._show_window()
+        elif kind == "quit":
+            self.quit()
+        elif kind == "refresh":
+            self._reload_feed()
+        elif kind in ("connect", "connect-windowed"):
+            ch = self._child_for(rid)
+            if ch:
+                self._on_tile_activated(self.grid, ch, windowed=kind == "connect-windowed")
+        elif kind in ("focus", "disconnect"):
+            ch = self._child_for(rid)
+            proc = ch._proc if ch else None
+            if not proc or proc.poll() is not None:
+                return
+            title = ch._res["title"]
+            if kind == "focus":
+                if not x11focus.focus_pid(proc.pid):
+                    self._set_status(f"Couldn't bring {title} to the front")
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)   # own session (start_new_session)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                self._set_status(f"Disconnecting {title}…")
+
     # ---- per-resource settings -------------------------------------------
     def _eff(self, key, res):
         """Resolve a setting: per-resource value → global default → None(=auto)."""
@@ -1182,6 +1369,7 @@ class AvdApp(Gtk.Application):
 
     def _error(self, msg):
         def show():
+            self._show_window()
             d = Gtk.AlertDialog()
             d.set_modal(True)
             d.set_message(msg)

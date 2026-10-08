@@ -178,6 +178,14 @@ modules:
         /app/share/metainfo/io.github.shakeelosmani.avd_feed_connect.metainfo.xml
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect.svg
         /app/share/icons/hicolor/scalable/apps/io.github.shakeelosmani.avd_feed_connect.svg
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect-symbolic.svg
+        /app/share/icons/hicolor/symbolic/apps/io.github.shakeelosmani.avd_feed_connect-symbolic.svg
+      # Tray icon dir handed to the host as IconThemePath. Quickshell loads
+      # <dir>/<IconName> verbatim (no extension); other hosts add ".svg".
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect-symbolic.svg
+        /app/share/avd-feed-connect/tray/io.github.shakeelosmani.avd_feed_connect-symbolic.svg
+      - install -Dm644 io.github.shakeelosmani.avd_feed_connect-symbolic.svg
+        /app/share/avd-feed-connect/tray/io.github.shakeelosmani.avd_feed_connect-symbolic
     sources:
       - type: git
         url: https://github.com/shakeelosmani/avd_feed_connect.git

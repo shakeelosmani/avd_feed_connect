@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Monochrome tray icon: a monitor with a "connect" arrow. Symbolic (single
+     fill), so tray hosts recolor it to match the bar. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path fill="#2e3436" fill-rule="evenodd" d="M2.5 1.5A2 2 0 0 0 .5 3.5v7a2 2 0 0 0 2 2h4v1.25H4.25a.75.75 0 0 0 0 1.5h7.5a.75.75 0 0 0 0-1.5H9.5V12.5h4a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm0 1.5h11a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-7a.5.5 0 0 1 .5-.5z"/>
+  <path fill="#2e3436" d="M8.6 4.1a.75.75 0 0 0-.05 1.06l.92.84H4.75a.75.75 0 0 0 0 1.5h4.72l-.92.84a.75.75 0 1 0 1.01 1.11l2.3-2.1a.75.75 0 0 0 0-1.1l-2.3-2.1a.75.75 0 0 0-1.06.05z"/>
+</svg>
