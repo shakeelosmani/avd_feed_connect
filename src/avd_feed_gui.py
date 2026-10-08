@@ -84,7 +84,7 @@ from avd_feed_connect.gui.tray import TrayIcon  # noqa: E402
 af = AvdClient()
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.4.8"
+APP_VERSION = "0.4.9"
 
 
 

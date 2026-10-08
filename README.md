@@ -68,6 +68,12 @@ grouped by workspace (`●` = connected), each with a submenu:
 screen), or — for a running session — **Focus window** and **Disconnect**.
 Left-click shows the main window. **Quit** from the tray menu exits.
 
+When you connect from the tray with the app hidden, there's a short quiet gap:
+after the Microsoft sign-in window (if one is needed) closes, the connection
+token is fetched in the background and the session starts with nothing on
+screen yet — the app stays in the tray and no window is shown until the remote
+desktop itself appears. That pause is normal; it isn't stuck.
+
 Two options in the account menu, under **System tray** (both off by default,
 so closing the window still quits the app):
 
