@@ -60,6 +60,19 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.4.9" date="2026-10-08">
+      <description>
+        <ul>
+          <li>New system-tray icon. Right-click it to connect to any workspace —
+          grouped by workspace, with Connect, Connect (windowed), and, for a
+          running session, Focus window and Disconnect — without opening the
+          main window. Optionally keep the app running in the tray when you
+          close the window, or start it straight to the tray. Off by default;
+          turn it on under the account menu. Thanks to Ewerton Mattos for
+          contributing this.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.4.8" date="2026-10-07">
       <description>
         <ul>
