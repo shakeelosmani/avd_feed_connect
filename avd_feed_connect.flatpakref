@@ -1,0 +1,9 @@
+[Flatpak Ref]
+Name=io.github.shakeelosmani.avd_feed_connect
+Branch=master
+Url=https://shakeelosmani.github.io/avd_feed_connect/repo
+Title=AVD Feed + Connect (Linux)
+IsRuntime=false
+GPGKey=mDMEappZ1RYJKwYBBAHaRw8BAQdALI0GVnNk9LjF4UGKIXEfSE/n/k/r+E1nlzVUrJol/Ta0RkFWRCBGZWVkICsgQ29ubmVjdCBGbGF0cGFrIDxhdmQtZmVlZC1jb25uZWN0QHVzZXJzLm5vcmVwbHkuZ2l0aHViLmNvbT6IkwQTFgoAOxYhBNVvdDM2Fz1h15wlgTJ4ZbqfkBySBQJqmlnVAhsDBQsJCAcCAiICBhUKCQgLAgQWAgMBAh4HAheAAAoJEDJ4ZbqfkByS5M8A/0oO/dYFyKJhOvcGrkDbQNtLD+diq47clCkDmrmdFJFFAP9V/K5A62vJUn8unuS8lW6CaCcNvpCa88cOv+NA5Y1WBQ==
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+SuggestRemoteName=avd-feed-connect
