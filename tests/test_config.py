@@ -71,17 +71,27 @@ def test_china_endpoints_and_allowlist(monkeypatch):
     assert not c.is_trusted_url("https://rdweb.wvd.microsoft.com/x")
 
 
-def test_gateway_arg_commercial_unchanged(monkeypatch):
-    c = _config_for(monkeypatch, "commercial")
-    assert c.gateway_arg() == "type:arm"
+def test_gateway_arg_is_always_arm(monkeypatch):
+    # AAD sub-options live on /azure, not /gateway (FreeRDP only parses
+    # g:/u:/d:/p:/type:/access-token:/bearer: on /gateway).
+    assert _config_for(monkeypatch, "commercial").gateway_arg() == "type:arm"
+    assert _config_for(monkeypatch, "usgov").gateway_arg() == "type:arm"
 
 
-def test_gateway_arg_sovereign_sets_authority_and_scope(monkeypatch):
-    c = _config_for(monkeypatch, "usgov")
-    arg = c.gateway_arg()
-    assert arg.startswith("type:arm,")
+def test_azure_arg_commercial_empty(monkeypatch):
+    # Commercial needs no /azure — FreeRDP defaults already target commercial Entra.
+    assert _config_for(monkeypatch, "commercial").azure_arg() == ""
+
+
+def test_azure_arg_sovereign_authority_with_commercial_redirect(monkeypatch):
+    # Sovereign overrides the authority (ad:) but keeps the public client's
+    # registered redirect on the commercial host (avd-access:) — the combination
+    # verified working for a US Gov AVD + PIV smartcard from Linux (#17).
+    arg = _config_for(monkeypatch, "usgov").azure_arg()
     assert "ad:login.microsoftonline.us" in arg
-    assert "avd-scope:https%3A%2F%2Fwww.wvd.azure.us%2F.default" in arg
+    assert "tenantid:common" in arg
+    assert ("avd-access:https%3A%2F%2Flogin.microsoftonline.com"
+            "%2Fcommon%2Foauth2%2Fnativeclient") in arg
 
 
 def test_reset_config_to_commercial(monkeypatch):

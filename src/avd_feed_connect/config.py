@@ -70,17 +70,29 @@ ACCEPT_FEED = "application/x-msts-radc+xml;radc_schema_version=2.0,text/xml"
 
 
 def gateway_arg():
-    """The value for FreeRDP's ``/gateway:``. Commercial keeps the bare
-    ``type:arm`` (unchanged behaviour); a sovereign cloud appends the AAD
-    authority and resource scope so FreeRDP's connection-time token targets that
-    cloud's Entra instead of the commercial default it ships with
-    (``login.microsoftonline.com`` / ``www.wvd.microsoft.com``). The scope is
-    URL-encoded as FreeRDP's ``avd-scope:`` sub-option expects."""
-    arg = "type:arm"
-    if CLOUD != "commercial":
-        scope = urllib.parse.quote(SCOPE, safe="")
-        arg += f",ad:{_C['authority']},avd-scope:{scope}"
-    return arg
+    """The value for FreeRDP's ``/gateway:`` — always ``type:arm``. The
+    connection-time AAD authority for a sovereign cloud is set separately via
+    ``/azure:`` (see :func:`azure_arg`); /gateway only parses g:/u:/d:/p:/type:/
+    access-token:/bearer:, so AAD sub-options belong on /azure, not here."""
+    return "type:arm"
+
+
+def azure_arg():
+    """The value for FreeRDP's ``/azure:`` sub-options, or ``""`` on the
+    commercial cloud (FreeRDP's defaults already target commercial Entra, so no
+    /azure is needed there).
+
+    A sovereign cloud overrides the Entra authority (``ad:``) to its own while
+    keeping the public Remote Desktop client's registered redirect on the
+    *commercial* host (``avd-access:``) — that exact combination is what
+    actually connects a US Gov AVD with a PIV smartcard from Linux (verified by
+    @cyberpil0t, #17). ``tenantid:common`` matches that working invocation."""
+    if CLOUD == "commercial":
+        return ""
+    redirect = urllib.parse.quote(
+        f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient",
+        safe="")
+    return f"ad:{_C['authority']},tenantid:common,avd-access:{redirect}"
 
 HOME = os.path.expanduser("~")
 

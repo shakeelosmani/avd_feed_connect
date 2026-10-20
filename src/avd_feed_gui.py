@@ -1893,6 +1893,10 @@ class AvdApp(Gtk.Application):
             f"session_{safe}_{hashlib.sha256(res['id'].encode()).hexdigest()[:16]}")
         argv = [config.SDL, path, f"/gateway:{config.gateway_arg()}",
                 "/sec:nla" if nla else "/sec:aad"]
+        # Sovereign clouds point FreeRDP's connection-time AAD at their own Entra
+        # via /azure (commercial needs nothing — azure_arg() is empty there).
+        if config.azure_arg():
+            argv.append(f"/azure:{config.azure_arg()}")
         if session.client.upn:
             argv.append(f"/u:{session.client.upn}")
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
