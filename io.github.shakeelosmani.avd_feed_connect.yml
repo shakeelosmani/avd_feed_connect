@@ -24,6 +24,7 @@ finish-args:
   # XWayland there too. (Only one graphics socket — Flathub disallows x11+wayland.)
   - --socket=x11
   - --socket=pulseaudio             # RDP audio playback + microphone redirect
+  - --socket=pcsc                   # host pcscd → smartcard (PIV/CAC) redirection
   - --device=dri                    # GPU for the RDP graphics pipeline
   - --device=all                    # webcam (camera redirection) + input
   - --talk-name=io.github.shakeelosmani.AvdWorkspaces  # optional GNOME workspace extension
@@ -108,6 +109,30 @@ modules:
         url: https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2
         sha256: ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575
 
+  # pcsc-lite client library (libpcsclite) for FreeRDP smartcard (PCSC)
+  # redirection (issue #17). Only the client lib + headers are consumed here —
+  # the pcscd daemon runs on the HOST and is reached through the Flatpak
+  # --socket=pcsc share, so every daemon-side dep (USB/udev/systemd/polkit) is
+  # turned off and the pcscd/pcsc-spy binaries it still builds are dropped.
+  - name: pcsc-lite
+    buildsystem: meson
+    config-opts:
+      - --libdir=lib
+      - -Dlibsystemd=false
+      - -Dlibudev=false
+      - -Dlibusb=false
+      - -Dpolkit=false
+      - -Dusb=false
+      - -Dserial=false
+    cleanup:
+      - /sbin/pcscd
+      - /bin/pcsc-spy
+      - /share
+    sources:
+      - type: archive
+        url: https://pcsclite.apdu.fr/files/pcsc-lite-2.5.3.tar.xz
+        sha256: fe2bb733ecf95e52768907eb00da9f9f3daf180960283e514a05dcc090afa3bd
+
   # ---- the FreeRDP SDL3 client, our -cam tree with the pulse fixes -------
   - name: freerdp
     buildsystem: cmake-ninja
@@ -131,6 +156,7 @@ modules:
       - -DWITH_SWSCALE=ON
       - -DWITH_X11=ON
       - -DWITH_KRB5=OFF          # AVD gateway uses AAD, not kerberos — keeps deps lean
+      - -DWITH_PCSC=ON           # smartcard (PIV/CAC) redirection via host pcscd (#17)
       - -DWITH_FUSE=OFF          # FUSE clipboard file-copy; not needed, avoids fuse3 dep
       - -DWITH_MANPAGES=OFF
       - -DCHANNEL_RDPECAM_CLIENT=ON
