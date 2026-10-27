@@ -40,6 +40,58 @@ def set_rdp_dynamic_resolution(path):
         destination.write("\n".join(lines) + "\n")
 
 
+def rdp_is_remoteapp(path):
+    """True when the feed .rdp is a RemoteApp (``remoteapplicationmode:i:1``).
+
+    FreeRDP reads this property straight from the connection file and switches
+    into RAIL (RemoteApp) mode, so the launcher needs to know before it adds any
+    full-desktop flags (``/f``, ``/multimon``, ``/scale-desktop``) that conflict
+    with RAIL. Safe to treat any I/O error as "not a RemoteApp"."""
+    try:
+        with open(path) as f:
+            for line in f:
+                head, _, val = line.partition(":i:")
+                if head.strip().lower() == "remoteapplicationmode":
+                    return val.strip() == "1"
+    except OSError:
+        pass
+    return False
+
+
+def set_rdp_desktop_mode(path):
+    """Rewrite a RemoteApp .rdp so FreeRDP connects to the full desktop instead
+    of launching the single published app in RAIL. Used by the
+    ``AVD_REMOTEAPP=desktop`` fallback: flips ``remoteapplicationmode`` to 0 and
+    drops ``alternate shell`` (and the RemoteApp display name/cmdline) so the
+    session runs the normal desktop shell rather than the published app.
+
+    ``remoteapplicationprogram`` and ``loadbalanceinfo`` are KEPT — FreeRDP's AVD
+    ARM endpoint resolver requires both to broker the connection, and strips them
+    out means ``arm_resolve_endpoint: loadBalanceInfo and RemoteApplicationProgram
+    needed`` and no connection at all. With the mode at 0, their presence no
+    longer triggers RAIL. Safe to no-op on any I/O error."""
+    drop = ("remoteapplicationname", "remoteapplicationcmdline", "alternate shell")
+    try:
+        with open(path) as f:
+            lines = f.read().splitlines()
+        out, found = [], False
+        for ln in lines:
+            head = ln.partition(":")[0].strip().lower()
+            if head == "remoteapplicationmode":
+                out.append("remoteapplicationmode:i:0")
+                found = True
+            elif head in drop:
+                continue
+            else:
+                out.append(ln)
+        if not found:
+            out.append("remoteapplicationmode:i:0")
+        with open(path, "w") as f:
+            f.write("\n".join(out) + "\n")
+    except OSError:
+        pass
+
+
 def set_rdp_multimon(path, enabled):
     """Force the .rdp's ``use multimon`` property to match the chosen setting.
 

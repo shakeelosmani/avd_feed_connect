@@ -60,6 +60,20 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.8.0" date="2026-10-27">
+      <description>
+        <ul>
+          <li>RemoteApp tiles that only showed "Loading" and then hung can now
+          be opened as the host's full desktop: right-click the tile →
+          Settings → Open RemoteApp as → Full desktop, then launch the app from
+          inside the desktop. It is off by default, shown only on RemoteApp
+          tiles, and remembered per resource.</li>
+          <li>This works only when the host pool actually grants a full desktop
+          session for that account; otherwise the app window integration of the
+          bundled client remains limited.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-10-22">
       <description>
         <ul>

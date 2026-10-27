@@ -80,6 +80,8 @@ from avd_feed_connect.rdp.attempt import ConnectionAttempt  # noqa: E402
 from avd_feed_connect.rdp.launcher import (  # noqa: E402
     apply_client_hotkeys, build_display_args, session_log_path,
     HOTKEY_MODIFIER_NAMES, HOTKEY_DEFAULTS, HOTKEY_ACTIONS, HOTKEY_KEYS)
+from avd_feed_connect.rdp.resources import (  # noqa: E402
+    rdp_is_remoteapp, set_rdp_desktop_mode)
 from avd_feed_connect.i18n import _ as tr, ngettext, configure, LANGUAGES  # noqa: E402
 from avd_feed_connect.gui.localization import bind, create, strings  # noqa: E402
 from avd_feed_connect.gui.theme import CSS_BASE, PALETTE_DARK, PALETTE_LIGHT  # noqa: E402
@@ -92,7 +94,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 
 
 
@@ -1442,6 +1444,16 @@ class AvdApp(Gtk.Application):
         argv = [config.SDL, path, "/gateway:type:arm", "/sec:nla" if nla else "/sec:aad"]
         if session.client.upn:
             argv.append(f"/u:{session.client.upn}")
+        # RemoteApp (RAIL) tiles: the bundled SDL client can't render RAIL windows,
+        # so a RemoteApp can optionally be opened as the host's full DESKTOP instead
+        # (per-resource "Open as full desktop" setting, or AVD_REMOTEAPP=desktop).
+        # Keep RemoteApplicationProgram/loadBalanceInfo — AVD's ARM resolver needs
+        # them — and only flip remoteapplicationmode off, then connect as a normal
+        # desktop below. Off by default: RemoteApp tiles otherwise behave as before.
+        force_desktop = os.environ.get("AVD_REMOTEAPP", "").strip().lower() == "desktop" \
+            or self._eff("remoteapp", res, session) == "desktop"
+        if force_desktop and rdp_is_remoteapp(path):
+            set_rdp_desktop_mode(path)
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
         # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
@@ -1965,6 +1977,24 @@ class AvdApp(Gtk.Application):
         auth_note.add_css_class("tile-sub")
         box.append(auth_note)
 
+        # RemoteApp (published single app) tiles can optionally open as the host's
+        # full desktop — the fallback for when the app's own window doesn't appear
+        # (the bundled client's RAIL rendering is limited). Only meaningful for a
+        # RemoteApp resource, so the control is shown only there; desktops never
+        # see it. It is a per-resource choice, off by default.
+        remoteapp_dd = None
+        if res is not None and res.get("type") == "RemoteApp":
+            remoteapp_dd = create(Gtk.DropDown,
+                model=strings([tr(label) for label in storage.REMOTEAPP_LABELS]))
+            rav = cur.get("remoteapp", "auto")
+            remoteapp_dd.set_selected(storage.REMOTEAPP_VALUES.index(rav)
+                                      if rav in storage.REMOTEAPP_VALUES else 0)
+            box.append(self._form_row(tr("Open RemoteApp as"), remoteapp_dd))
+            remoteapp_note = create(Gtk.Label, xalign=0, wrap=True,
+                label=tr("Full desktop opens the whole remote PC so you can launch the app yourself — use this if the app window never appears."))
+            remoteapp_note.add_css_class("tile-sub")
+            box.append(remoteapp_note)
+
         hk_dd = create(Gtk.DropDown, model=strings([tr(label) for label in storage.HOTKEY_LABELS]))
         hv = cur.get("hotkeys", "auto")
         custom_hotkeys = hv if isinstance(hv, dict) else {}
@@ -2119,11 +2149,14 @@ class AvdApp(Gtk.Application):
                     entry["user_agent"] = ua_entry.get_text().strip() or "auto"
                 else:
                     entry["user_agent"] = storage.UA_PRESETS[ua_sel]
+            if remoteapp_dd is not None:   # RemoteApp resources only
+                entry["remoteapp"] = storage.REMOTEAPP_VALUES[remoteapp_dd.get_selected()]
             # drop an all-default entry so the file stays tidy
             if entry["scale"] == "auto" and entry["multimon"] == "auto" \
                     and entry["cert"] == "auto" and entry["sec"] == "auto" and entry["hotkeys"] == "auto" \
                     and entry["new_workspace"] == ("auto" if res else "off") \
                     and entry.get("user_agent", "auto") == "auto" \
+                    and entry.get("remoteapp", "auto") == "auto" \
                     and not entry["extra_args"]:
                 settings.pop(key, None)
             else:

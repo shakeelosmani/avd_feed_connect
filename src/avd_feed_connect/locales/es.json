@@ -151,5 +151,9 @@
   "Could not prepare authentication: {error}": "No se pudo preparar la autenticación: {error}",
   "Automatic respects the feed and remembers successful connections. If your feed does not advertise SSO, select Entra to test it. This does not bypass MFA or your organization's sign-in policy.": "Automático respeta el feed y recuerda las conexiones exitosas. Si el feed no anuncia SSO, selecciona Entra para probarlo. Esto no evita MFA ni la política de inicio de sesión de tu organización.",
   "Cancel pending connections": "Cancelar conexiones pendientes",
-  "Connection cancelled": "Conexión cancelada"
+  "Connection cancelled": "Conexión cancelada",
+  "Open RemoteApp as": "Abrir RemoteApp como",
+  "Automatic (app window)": "Automático (ventana de la aplicación)",
+  "Full desktop": "Escritorio completo",
+  "Full desktop opens the whole remote PC so you can launch the app yourself — use this if the app window never appears.": "Escritorio completo abre todo el equipo remoto para que pueda iniciar la aplicación usted mismo; use esta opción si la ventana de la aplicación nunca aparece."
 }
