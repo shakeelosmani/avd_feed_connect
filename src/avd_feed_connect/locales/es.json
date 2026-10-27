@@ -170,5 +170,7 @@
   "After you sign in, copy the final address from your browser and paste it here:": "Después de iniciar sesión, copie la dirección final de su navegador y péguela aquí:",
   "Paste the sign-in address": "Pegue la dirección de inicio de sesión",
   "Signed in": "Sesión iniciada",
-  "Signed in. You can close this tab and return to the app.": "Sesión iniciada. Puede cerrar esta pestaña y volver a la aplicación."
+  "Signed in. You can close this tab and return to the app.": "Sesión iniciada. Puede cerrar esta pestaña y volver a la aplicación.",
+  "Copy sign-in link": "Copiar enlace de inicio de sesión",
+  "If your browser didn't open — or your certificate is in a different browser — copy the link and open it there.": "Si el navegador no se abrió, o su certificado está en otro navegador, copie el enlace y ábralo allí."
 }

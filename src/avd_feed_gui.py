@@ -96,7 +96,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.8.0-dev (browser sign-in test)"
+APP_VERSION = "0.8.0-dev (browser sign-in + Gov test)"
 
 
 class _LoopbackHandler(BaseHTTPRequestHandler):
@@ -1085,7 +1085,16 @@ class AvdApp(Gtk.Application):
         intro.add_css_class("hero-sub")
 
         open_btn = create(Gtk.Button, label=tr("Open browser"))
-        open_btn.add_css_class("suggested-action"); open_btn.set_halign(Gtk.Align.START)
+        open_btn.add_css_class("suggested-action")
+        copy_btn = create(Gtk.Button, label=tr("Copy sign-in link"))
+        copy_btn.add_css_class("flat")
+        btnrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btnrow.set_halign(Gtk.Align.START)
+        btnrow.append(open_btn); btnrow.append(copy_btn)
+        copy_note = create(Gtk.Label, xalign=0, wrap=True,
+            label=tr("If your browser didn't open — or your certificate is in a "
+                     "different browser — copy the link and open it there."))
+        copy_note.add_css_class("hero-sub")
 
         statusrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         spinner = Gtk.Spinner(); spinner.start()
@@ -1107,7 +1116,7 @@ class AvdApp(Gtk.Application):
         paste_box.append(paste_note); paste_box.append(paste_entry); paste_box.append(paste_go)
         paste_box.set_visible(False)
 
-        for w in (heading, intro, open_btn, statusrow, paste_link, paste_box):
+        for w in (heading, intro, btnrow, copy_note, statusrow, paste_link, paste_box):
             box.append(w)
         dlg.set_child(box)
 
@@ -1158,6 +1167,7 @@ class AvdApp(Gtk.Application):
         def begin_paste(*_):
             shutdown_server()
             redirect_used[0] = config.REDIRECT
+            copy_btn.set_label(tr("Copy sign-in link"))   # link changed; allow re-copy
             spinner.stop()
             statusrow.set_visible(False)
             paste_link.set_visible(False)
@@ -1175,6 +1185,15 @@ class AvdApp(Gtk.Application):
 
         open_btn.connect("clicked", lambda *_: launch(authorize_url(
             redirect_used[0] or config.REDIRECT)))
+
+        def do_copy(*_):
+            try:
+                copy_btn.get_clipboard().set(
+                    authorize_url(redirect_used[0] or config.REDIRECT))
+                copy_btn.set_label(tr("Copied"))
+            except Exception:
+                pass
+        copy_btn.connect("clicked", do_copy)
         paste_link.connect("clicked", begin_paste)
 
         def do_paste(*_):

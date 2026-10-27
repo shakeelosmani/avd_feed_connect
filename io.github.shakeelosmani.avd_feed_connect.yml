@@ -23,6 +23,15 @@ finish-args:
   # the socket must exist even on a Wayland host. The launcher GUI renders via
   # XWayland there too. (Only one graphics socket — Flathub disallows x11+wayland.)
   - --socket=x11
+  # The GTK4 launcher GUI renders natively on Wayland when this socket is present
+  # (correct theme + fractional/HiDPI scaling — reported by AfroThundr3007730 in
+  # #17); the FreeRDP SDL child is still pinned to XWayland via GDK_BACKEND=x11 +
+  # SDL_VIDEODRIVER=x11, so it keeps using the --socket=x11 above. NOTE for
+  # mainline: Flathub lints against bare x11 + wayland together; revisit before a
+  # Flathub release (fallback-x11 can't be used here — the child needs the X11
+  # socket even on a Wayland host).
+  - --socket=wayland
+  - --socket=session-bus            # xdg portal Settings → dark/light theme follow
   - --socket=pulseaudio             # RDP audio playback + microphone redirect
   - --socket=pcsc                   # host pcscd → smartcard (PIV/CAC) redirection
   - --device=dri                    # GPU for the RDP graphics pipeline
