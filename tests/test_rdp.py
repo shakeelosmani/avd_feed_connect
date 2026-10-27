@@ -2,7 +2,8 @@
 
 from avd_feed_connect.rdp import build_argv, set_rdp_multimon
 from avd_feed_connect.rdp.launcher import build_display_args
-from avd_feed_connect.rdp.resources import set_rdp_dynamic_resolution
+from avd_feed_connect.rdp.resources import (
+    set_rdp_dynamic_resolution, rdp_is_remoteapp, set_rdp_desktop_mode)
 
 
 def test_dynamic_display_settings_in_freerdp(tmp_path):
@@ -146,6 +147,30 @@ def _rdp(tmp_path, body):
     p = tmp_path / "x.rdp"
     p.write_text(body)
     return str(p)
+
+
+def test_rdp_is_remoteapp_detects_mode(tmp_path):
+    assert rdp_is_remoteapp(_rdp(tmp_path, "full address:s:h\nremoteapplicationmode:i:1\n"))
+    assert not rdp_is_remoteapp(_rdp(tmp_path, "full address:s:h\nremoteapplicationmode:i:0\n"))
+    assert not rdp_is_remoteapp(_rdp(tmp_path, "full address:s:h\n"))   # desktop (no property)
+    assert not rdp_is_remoteapp(str(tmp_path / "missing.rdp"))          # I/O error → False
+
+
+def test_set_rdp_desktop_mode_forces_desktop(tmp_path):
+    path = _rdp(tmp_path, "full address:s:h\nremoteapplicationmode:i:1\n"
+                          "remoteapplicationprogram:s:||VC\nalternate shell:s:||VC\n"
+                          "loadbalanceinfo:s:tsv.x\nusername:s:u\n")
+    set_rdp_desktop_mode(path)
+    lines = open(path).read().splitlines()
+    assert "remoteapplicationmode:i:0" in lines
+    assert "remoteapplicationmode:i:1" not in lines
+    # AVD ARM resolver needs these — must be KEPT:
+    assert "remoteapplicationprogram:s:||VC" in lines
+    assert "loadbalanceinfo:s:tsv.x" in lines
+    # but the app-as-shell is dropped so the desktop shell runs:
+    assert not any(l.lower().startswith("alternate shell") for l in lines)
+    assert "username:s:u" in lines           # unrelated properties preserved
+    assert not rdp_is_remoteapp(path)         # and FreeRDP now sees a desktop
 
 
 def test_multimon_disable_rewrites_existing_property(tmp_path):

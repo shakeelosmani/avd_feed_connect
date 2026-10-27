@@ -235,9 +235,10 @@ override it, the easiest way is right inside the app.
 #### In-app settings (no terminal, remembered per workspace)
 
 - **Per workspace:** right-click a workspace tile → set its **Display scale**,
-  **Monitors** (single / all / automatic), **Server certificate**, **Client shortcuts**,
-  and any **Advanced flags**. These are remembered per resource, so a RemoteApp
-  and a full Desktop can differ.
+  **Monitors** (single / all / automatic), **Server certificate**, **Session
+  authentication**, **Client shortcuts**, and any **Advanced flags** — plus, on a
+  **RemoteApp** tile only, **Open RemoteApp as**. These are remembered per
+  resource, so a RemoteApp and a full Desktop can differ.
 - **Defaults for everything:** the **Settings (gear) menu → Default settings…** sets the
   fallback used by any workspace left on "Automatic", plus the account-wide
   **Sign-in browser** identity.
@@ -255,6 +256,18 @@ rebuilt — set **Server certificate → Don't verify** for that workspace (or i
 Default settings). That restores the old behaviour of accepting any certificate.
 Leave it on **Verify** whenever you can; only turn it off if it's actually
 blocking you. (Scripting override: `AVD_CERT=ignore` or `AVD_CERT=verify`.)
+
+**Open RemoteApp as (app window / full desktop).** A **RemoteApp** tile is a
+single published app (e.g. a line-of-business tool) rather than a full desktop.
+The bundled SDL client's RemoteApp/RAIL window integration is limited and the app
+window may never appear — the session connects and then looks stuck. If that
+happens, right-click that tile → **Settings** → set **Open RemoteApp as → Full
+desktop**. The app then connects to the host's **whole desktop** so you can
+launch the published app from inside it, the way a desktop tile works. It keeps
+the RemoteApp's routing info intact (so Azure Virtual Desktop can still broker the
+host), and only applies to that one RemoteApp tile — it is **off by default** and
+never shown on Desktop tiles. This works only if that host pool actually hands out
+a desktop session. (Scripting override: `AVD_REMOTEAPP=desktop`.)
 
 **Client shortcuts (Right Shift + key).** The bundled SDL client reserves
 Right Shift + key for its own shortcuts (D disconnects, Enter toggles
@@ -363,6 +376,7 @@ Both methods write the same setting.
 |---|---|
 | `AVD_SCALE` | Force the remote scale percentage (`100`, `125`, `150`, `200`, …). Overrides the auto HiDPI detection. |
 | `AVD_MULTIMON` | Force multi-monitor on (`1`/`on`) or off (`0`/`off`). Overrides the auto monitor-count detection. |
+| `AVD_REMOTEAPP` | `desktop` opens **every** RemoteApp tile as the host's full desktop instead of the app window (the per-tile **Open RemoteApp as** setting does the same for one tile). |
 | `AVD_EXTRA_ARGS` | Extra `sdl-freerdp` flags appended verbatim, e.g. `"/gfx"`, `"/network:auto"`, or your own `/multimon` / `-multimon` (which then wins over the auto choice). |
 | `AVD_SDL_FREERDP` | Path to the `sdl-freerdp` binary (defaults to the bundled one). |
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
