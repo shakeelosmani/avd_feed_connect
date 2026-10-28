@@ -172,5 +172,18 @@
   "Signed in": "Sesión iniciada",
   "Signed in. You can close this tab and return to the app.": "Sesión iniciada. Puede cerrar esta pestaña y volver a la aplicación.",
   "Copy sign-in link": "Copiar enlace de inicio de sesión",
-  "If your browser didn't open — or your certificate is in a different browser — copy the link and open it there.": "Si el navegador no se abrió, o su certificado está en otro navegador, copie el enlace y ábralo allí."
+  "If your browser didn't open — or your certificate is in a different browser — copy the link and open it there.": "Si el navegador no se abrió, o su certificado está en otro navegador, copie el enlace y ábralo allí.",
+  "Could not open that .rdp file: {error}": "No se pudo abrir ese archivo .rdp: {error}",
+  "Finish signing in": "Termina de iniciar sesión",
+  "If your organization blocks sign-in on Linux": "Si tu organización bloquea el inicio de sesión en Linux",
+  "Local .rdp files": "Archivos .rdp locales",
+  "Local file": "Archivo local",
+  "Open a downloaded .rdp": "Abrir un .rdp descargado",
+  "Open a downloaded .rdp instead": "Abrir un .rdp descargado en su lugar",
+  "Open a downloaded .rdp…": "Abrir un .rdp descargado…",
+  "Opened {resource} — double-click to connect": "Se abrió {resource}: haz doble clic para conectar",
+  "Remote Desktop files": "Archivos de Escritorio remoto",
+  "Remote desktop": "Escritorio remoto",
+  "The .rdp file could not be found. Open it again.": "No se encontró el archivo .rdp. Ábrelo de nuevo.",
+  "Your browser will open so you can sign in with your smart card or certificate. Then copy the final address from the browser's address bar and paste it below. Take your time — the connection waits for you.": "Tu navegador se abrirá para que inicies sesión con tu tarjeta inteligente o certificado. Luego copia la dirección final de la barra de direcciones del navegador y pégala abajo. Tómate tu tiempo: la conexión te espera."
 }

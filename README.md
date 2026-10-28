@@ -287,6 +287,26 @@ differed, Microsoft would see an inconsistent device for that session and refuse
 to connect. The setting changes only the sign-in window's identity — not the
 remote session — and takes effect on your next sign-in.
 
+**Open a downloaded .rdp (if your tenant blocks the feed on Linux entirely).**
+Some hardened tenants — many US Government / DoD ones — have a Conditional
+Access policy that refuses an unmanaged Linux device a token for the **workspace
+feed** at all, so the app can't discover your desktops no matter how you sign in.
+If you can still download a `.rdp`/`.rdpw` from the AVD web client
+(`https://client.wvd.azure.us/arm/webclient/` on Gov, or the commercial
+equivalent), the app can connect that file directly: **⋯ menu → Open a
+downloaded .rdp…** (also offered on the sign-in screen). It appears as a tile
+under a **Local .rdp files** account and connects with the normal flow — the
+connection's own sign-in opens in your **system browser** so a smart card / CAC
+or certificate can be presented (the built-in window can't), and the app waits
+for you to finish and paste the final address back, so there's no race. New
+tiles default to `/smartcard` in **Advanced flags**; edit them per tile.
+
+This works because only the *feed* token is blocked for these tenants — the
+per-connection sign-in is allowed, which is exactly what the manual
+`xfreerdp3 … /azure:… /smartcard` workaround relies on. Set `AVD_CLOUD=usgov`
+(see below) so the connection targets the Gov Entra endpoints. If your tenant
+*doesn't* block the feed, just sign in normally; you don't need this.
+
 **Resizable window (dynamic resolution):** by default the session opens
 fullscreen. If you'd rather have a resizable window whose remote resolution
 follows the window as you resize it, add `/dynamic-resolution` to that

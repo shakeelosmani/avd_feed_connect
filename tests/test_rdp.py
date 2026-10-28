@@ -316,3 +316,41 @@ def test_custom_hotkeys_reject_duplicate_unknown_and_malformed_keys(tmp_path):
         assert not apply_client_hotkeys({'modifiers': ['KMOD_RSHIFT'], 'bindings': bindings}, str(path))
         assert path.read_text() == '{"keep": true}'
     assert not apply_client_hotkeys({'modifiers': [{}], 'bindings': dict(HOTKEY_DEFAULTS)}, str(path))
+
+
+def test_local_resource_desktop(tmp_path):
+    from avd_feed_connect.rdp.resources import local_resource
+    p = tmp_path / "Army Desktop.rdp"
+    p.write_text("full address:s:host.wvd.azure.us\nscreen mode id:i:2\n")
+    res = local_resource(str(p))
+    assert res["type"] == "Desktop"
+    assert res["title"] == "Army Desktop"          # friendly filename, not the host
+    assert res["tenant"]                            # non-empty label
+    assert res["id"].startswith("local-")
+
+
+def test_local_resource_remoteapp_uses_app_name(tmp_path):
+    from avd_feed_connect.rdp.resources import local_resource
+    p = tmp_path / "vc.rdp"
+    p.write_text("remoteapplicationmode:i:1\nremoteapplicationname:s:VisualCron\n"
+                 "full address:s:host\n")
+    res = local_resource(str(p))
+    assert res["type"] == "RemoteApp"
+    assert res["title"] == "VisualCron"
+
+
+def test_local_resource_id_stable_per_path(tmp_path):
+    from avd_feed_connect.rdp.resources import local_resource
+    p = tmp_path / "d.rdp"
+    p.write_text("full address:s:h\n")
+    assert local_resource(str(p))["id"] == local_resource(str(p))["id"]
+
+
+def test_rdp_property_reads_value_and_missing(tmp_path):
+    from avd_feed_connect.rdp.resources import rdp_property
+    p = tmp_path / "d.rdp"
+    p.write_text("full address:s:host.example\nuse multimon:i:1\n")
+    assert rdp_property(str(p), "full address") == "host.example"
+    assert rdp_property(str(p), "USE MULTIMON") == "1"      # case-insensitive
+    assert rdp_property(str(p), "missing") is None
+    assert rdp_property(str(tmp_path / "nope.rdp"), "full address") is None

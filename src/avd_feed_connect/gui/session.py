@@ -43,6 +43,12 @@ class AccountSession:
         return self.profile['id']
 
     @property
+    def local(self):
+        """True for the synthetic account that holds user-opened .rdp files
+        (no feed, no token, no sign-in); see AvdApp._local_session (issue #17)."""
+        return bool(self.profile.get('local'))
+
+    @property
     def display_name(self):
         if self.profile.get('alias'):
             return self.profile['alias']

@@ -28,6 +28,45 @@ def download_rdp(token, res, output_dir=None):
     return path
 
 
+def rdp_property(path, name):
+    """Return a .rdp property's value (the part after ``name:<type>:``), or None.
+
+    .rdp lines are ``<name>:<type>:<value>`` (e.g. ``full address:s:host``);
+    this returns the ``<value>`` for the first line whose name matches,
+    case-insensitively. Any I/O error yields None."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                head, sep, rest = line.partition(":")
+                if sep and head.strip().lower() == name.lower():
+                    return rest.partition(":")[2].strip()
+    except OSError:
+        return None
+    return None
+
+
+def local_resource(path):
+    """Build a GUI resource dict from a user-supplied .rdp/.rdpw file.
+
+    Mirrors a feed resource's shape (``id``/``title``/``tenant``/``type``) so a
+    locally opened file flows through the same tile and connect path, for tenants
+    whose Conditional Access blocks feed sign-in from Linux but still lets a
+    web-client-downloaded .rdp connect (issue #17). ``type`` is ``"RemoteApp"``
+    when the file publishes a single app (``remoteapplicationmode:i:1``), else
+    ``"Desktop"``. The id is stable for a given absolute path, so re-opening the
+    same file updates its tile instead of duplicating it."""
+    name = os.path.splitext(os.path.basename(path))[0].strip()
+    mode = rdp_property(path, "remoteapplicationmode")
+    is_app = mode == "1"
+    app_name = (rdp_property(path, "remoteapplicationname")
+                or rdp_property(path, "remoteapplicationprogram"))
+    title = (app_name if is_app and app_name else name) \
+        or rdp_property(path, "full address") or tr("Remote desktop")
+    rid = "local-" + hashlib.sha256(os.path.abspath(path).encode()).hexdigest()[:16]
+    return {"id": rid, "title": title, "tenant": tr("Local file"),
+            "type": "RemoteApp" if is_app else "Desktop"}
+
+
 def set_rdp_dynamic_resolution(path):
     """Remove feed settings that conflict with a dynamically resized window."""
     with open(path) as source:

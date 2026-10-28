@@ -80,6 +80,7 @@ from avd_feed_connect.auth.oauth import _b64url  # noqa: E402
 from avd_feed_connect.client import AvdClient  # noqa: E402
 from avd_feed_connect.gui.workspaces import select_backend as workspace_backend  # noqa: E402
 from avd_feed_connect.rdp.security import resolve_security  # noqa: E402
+from avd_feed_connect.rdp.resources import local_resource  # noqa: E402
 from avd_feed_connect.rdp.attempt import ConnectionAttempt  # noqa: E402
 from avd_feed_connect.rdp.launcher import (  # noqa: E402
     apply_client_hotkeys, build_display_args, session_log_path,
@@ -96,7 +97,10 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.8.0-dev (browser sign-in + Gov test)"
+APP_VERSION = "0.8.0-dev (Gov browser sign-in + open .rdp test)"
+# The synthetic account that holds user-opened .rdp files (issue #17). Fixed id
+# so it persists across restarts and never collides with a real account's uuid.
+LOCAL_PROFILE_ID = "local-rdp-files"
 
 
 class _LoopbackHandler(BaseHTTPRequestHandler):
@@ -235,7 +239,7 @@ class AvdApp(Gtk.Application):
         self.selected_id = profile_id
         if not os.environ.get("AVD_DEMO"):
             self.registry.select(profile_id)
-        self._update_account(session.client.upn)
+        self._update_account(session.client.upn, session)
         self._rebuild_account_menu()
         if self.view_mode == "all":
             self._render_resources()
@@ -244,7 +248,7 @@ class AvdApp(Gtk.Application):
                     threading.Thread(target=self._background_refresh, args=(owner,), daemon=True).start()
             return
         self._clear_tiles()
-        if session.resources:
+        if session.resources or session.local:
             self._populate(session.resources, session)
         else:
             self._show("busy", session)
@@ -382,6 +386,8 @@ class AvdApp(Gtk.Application):
             self._scale = 1
 
     def _background_refresh(self, session):
+        if session.local:
+            return            # no feed to refresh; opened .rdp tiles are shown as-is
         if not self._do_refresh(True, session):
             if session.resources:
                 self._set_status(self._refresh_failed_status(session), session, reauth=True)
@@ -568,6 +574,10 @@ class AvdApp(Gtk.Application):
         add.add_css_class("flat")
         add.connect("clicked", lambda *_: (pop.popdown(), self._add_account()))
         pbox.append(add)
+        openrdp = create(Gtk.Button, label=tr("Open a downloaded .rdp…"))
+        openrdp.add_css_class("flat")
+        openrdp.connect("clicked", lambda *_: (pop.popdown(), self._open_local_rdp()))
+        pbox.append(openrdp)
         pbox.append(Gtk.Separator())
         signout = create(Gtk.Button, label=tr("Sign out")); signout.add_css_class("flat")
         signout.set_sensitive(False)
@@ -611,9 +621,16 @@ class AvdApp(Gtk.Application):
         browser_btn.connect("clicked", lambda *_: self._start_browser_signin())
         browser_sub = create(Gtk.Label, label=tr("For smart card or certificate sign-in"))
         browser_sub.add_css_class("hero-note"); browser_sub.set_margin_top(2)
+        openrdp_link = create(Gtk.Button, label=tr("Open a downloaded .rdp instead"))
+        openrdp_link.add_css_class("flat"); openrdp_link.set_halign(Gtk.Align.CENTER)
+        openrdp_link.set_margin_top(12)
+        openrdp_link.connect("clicked", lambda *_: self._open_local_rdp())
+        openrdp_sub = create(Gtk.Label, label=tr("If your organization blocks sign-in on Linux"))
+        openrdp_sub.add_css_class("hero-note"); openrdp_sub.set_margin_top(2)
         note = create(Gtk.Label, label=tr("Unofficial client · not affiliated with or endorsed by Microsoft"))
         note.add_css_class("hero-note"); note.set_margin_top(24)
-        for w in (bm, h1, h2, btn, browser_btn, browser_sub, note):
+        for w in (bm, h1, h2, btn, browser_btn, browser_sub,
+                  openrdp_link, openrdp_sub, note):
             signin.append(w)
         self.stack.add_named(signin, "signin")
 
@@ -731,8 +748,14 @@ class AvdApp(Gtk.Application):
             return False
         GLib.idle_add(apply)
 
-    def _update_account(self, who):
+    def _update_account(self, who, session=None):
         """Fill the header account chip: email + a 2-letter avatar."""
+        session = session if session is not None else self.current
+        if session is not None and session.local:
+            name = session.display_name
+            bind(self._acct_who, 'text', name)
+            bind(self._avatar_lbl, 'text', (name[:1] or "L").upper())
+            return
         if not who or "@" not in who:
             bind(self._acct_who, 'text', tr("Sign in"))
             bind(self._avatar_lbl, 'text', "?")
@@ -818,6 +841,8 @@ class AvdApp(Gtk.Application):
         return False
 
     def _ensure_token(self, session):
+        if session.local:
+            return not session.removed   # local .rdp files need no feed token
         with session.refresh_lock:
             if session.removed:
                 return False
@@ -1593,9 +1618,10 @@ class AvdApp(Gtk.Application):
              ngettext("{count} resource", "{count} resources", count).format(count=count))
         bind(self.status, 'text',
              tr("All accounts") if self.view_mode == "all"
+             else self.current.display_name if self.current and self.current.local
              else tr("Signed in as {upn}").format(upn=self.current.client.upn) if self.current
              else "")
-        self._update_account(self.current.client.upn if self.current else "")
+        self._update_account(self.current.client.upn if self.current else "", self.current)
         self._rebuild_account_menu()
         self._tray_refresh()
         self.stack.set_visible_child_name("workspaces" if owners else "signin")
@@ -1621,6 +1647,7 @@ class AvdApp(Gtk.Application):
                     widgets[0].get_parent().set_visible(not resources)
                 self.stack.set_visible_child_name("workspaces")
                 self.status.set_text("All accounts" if self.view_mode == "all" else
+                                     session.display_name if session.local else
                                      f"Signed in as {session.client.upn}")
         else:
             self._rebuild_account_menu()
@@ -1863,7 +1890,8 @@ class AvdApp(Gtk.Application):
                     if attempt.is_current():
                         child._launching = False
                     return
-                path = session.client.download_rdp(session.token, res)
+                path = (self._prepare_local_rdp(res) if session.local
+                        else session.client.download_rdp(session.token, res))
                 if not attempt.active():
                     return
         except (SystemExit, Exception) as e:  # never let a write/HTTP error hang the tile
@@ -2108,8 +2136,12 @@ class AvdApp(Gtk.Application):
         if line.startswith("Browse to: "):
             url = line[len("Browse to: "):].strip()
             if config.is_aad_login_url(url):
-                # Resolve on the main thread (WebKit must run there).
-                GLib.idle_add(self._resolve_aad, master, url, res, session, attempt)
+                # Resolve on the main thread (WebKit must run there). A local
+                # .rdp is for tenants whose CA needs a smart card / CAC, which
+                # the embedded WebView can't present — so send those through the
+                # system browser instead (issue #17).
+                resolver = self._resolve_aad_browser if session.local else self._resolve_aad
+                GLib.idle_add(resolver, master, url, res, session, attempt)
             else:
                 # Never load an arbitrary URL in the SSO-cookie WebView; a blank
                 # line makes FreeRDP abort this auth instead of blocking on stdin.
@@ -2198,6 +2230,189 @@ class AvdApp(Gtk.Application):
                 win.present()
             return False
         holder["timer"] = GLib.timeout_add(3000, show_if_pending)
+        return False
+
+    # ---- local .rdp files (issue #17) -------------------------------------
+    def _local_session(self):
+        """Return the synthetic 'Local .rdp files' account, creating + persisting
+        it on first use. It has no feed and no token; it only holds .rdp files
+        the user opened themselves, for tenants whose Conditional Access blocks
+        feed sign-in from Linux but still lets a downloaded .rdp connect."""
+        session = self.accounts.get(LOCAL_PROFILE_ID)
+        if session is not None:
+            return session
+        profile = {'id': LOCAL_PROFILE_ID, 'local': True,
+                   'tid': '', 'oid': '', 'upn': '', 'alias': tr("Local .rdp files")}
+        if not any(p.get('id') == LOCAL_PROFILE_ID for p in self.registry.profiles):
+            self.registry.profiles.append(profile)
+            self.registry.save()
+        session = AccountSession(profile, self.registry.client(LOCAL_PROFILE_ID),
+                                 profile_dir(self.registry.root, LOCAL_PROFILE_ID))
+        self.accounts[LOCAL_PROFILE_ID] = session
+        return session
+
+    def _open_local_rdp(self):
+        """Pick a .rdp/.rdpw downloaded from the AVD web client and add it as a
+        tile under the local account."""
+        dialog = Gtk.FileDialog()
+        dialog.set_title(tr("Open a downloaded .rdp"))
+        filt = Gtk.FileFilter()
+        filt.set_name(tr("Remote Desktop files"))
+        for pattern in ("*.rdp", "*.rdpw", "*.RDP", "*.RDPW"):
+            filt.add_pattern(pattern)
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(filt)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(filt)
+        parent = self.win if self.win and self.win.get_visible() else None
+
+        def done(dlg, result):
+            try:
+                gfile = dlg.open_finish(result)
+            except GLib.Error:
+                return                       # cancelled or failed — nothing to do
+            path = gfile.get_path() if gfile else None
+            if path:
+                self._import_rdp(path)
+        dialog.open(parent, None, done)
+
+    def _import_rdp(self, src_path):
+        """Copy a chosen .rdp into the local account's store and show its tile."""
+        session = self._local_session()
+        try:
+            res = local_resource(src_path)
+            store = os.path.join(session.directory, "files")
+            os.makedirs(store, mode=0o700, exist_ok=True)
+            stored = os.path.join(store, res["id"] + ".rdp")
+            shutil.copyfile(src_path, stored)
+        except OSError as error:
+            self._error(tr("Could not open that .rdp file: {error}").format(error=error))
+            return
+        res["_local_path"] = stored
+        # Default new tiles to a smart-card-enabled connection — this feature is
+        # for CAC/PIV users; they can edit Advanced flags per tile afterwards.
+        settings = session.resource_settings.setdefault(res["id"], {})
+        settings.setdefault("extra_args", "/smartcard")
+        session.save_preferences()
+        resources = [r for r in session.resources if r.get("id") != res["id"]]
+        resources.append(res)
+        session.save_resources(resources)
+        self._select_account(LOCAL_PROFILE_ID)
+        self._set_status(tr("Opened {resource} — double-click to connect").format(
+            resource=res["title"]), session)
+
+    def _prepare_local_rdp(self, res):
+        """Copy a stored local .rdp to a fresh working file so the connect-time
+        display rewrites never mutate the user's saved original. Returns the
+        path, or raises OSError if the stored file is missing."""
+        src = res.get("_local_path")
+        if not src or not os.path.exists(src):
+            raise OSError(tr("The .rdp file could not be found. Open it again."))
+        work = os.path.join(os.path.dirname(config.CACHE), "local-rdp", "work")
+        os.makedirs(work, mode=0o700, exist_ok=True)
+        dst = os.path.join(work, res["id"] + ".rdp")
+        shutil.copyfile(src, dst)
+        return dst
+
+    def _resolve_aad_browser(self, master, url, res, session, attempt=None):
+        """Service a connection-time 'Browse to:' prompt through the SYSTEM
+        browser instead of the embedded WebView, so a smart card / CAC
+        certificate can be presented (the WebView can't — issue #17). FreeRDP
+        stays blocked on stdin while the user signs in and pastes the final
+        address back, so there is no race against FreeRDP's own redirect
+        handler. The pasted redirect URL is written straight to the pty."""
+        if session.removed or (attempt is not None and not attempt.active()):
+            if attempt is not None and not attempt.cancelled.is_set():
+                attempt.cancel()
+            else:
+                try:
+                    os.write(master, b"\n")
+                except OSError:
+                    pass
+            return False
+        done = [False]
+
+        def launch(target):
+            try:
+                Gio.AppInfo.launch_default_for_uri(target, None)
+            except Exception:
+                pass
+
+        parent = self.win if self.win and self.win.get_visible() else None
+        win = create(Gtk.Window,
+                     title=tr("Sign in — {resource}").format(resource=res['title']),
+                     transient_for=parent, modal=parent is not None)
+        win.set_default_size(480, -1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for margin in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{margin}")(22)
+        heading = create(Gtk.Label, label=tr("Finish signing in"), xalign=0)
+        heading.add_css_class("hero-title")
+        intro = create(Gtk.Label, xalign=0, wrap=True,
+            label=tr("Your browser will open so you can sign in with your smart "
+                     "card or certificate. Then copy the final address from the "
+                     "browser's address bar and paste it below. Take your time — "
+                     "the connection waits for you."))
+        intro.add_css_class("hero-sub")
+        open_btn = create(Gtk.Button, label=tr("Open browser"))
+        open_btn.add_css_class("suggested-action")
+        copy_btn = create(Gtk.Button, label=tr("Copy sign-in link"))
+        copy_btn.add_css_class("flat")
+        btnrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btnrow.set_halign(Gtk.Align.START)
+        btnrow.append(open_btn); btnrow.append(copy_btn)
+        paste_entry = Gtk.Entry(); paste_entry.set_hexpand(True)
+        bind(paste_entry, 'placeholder_text', tr("Paste the sign-in address"))
+        paste_go = create(Gtk.Button, label=tr("Sign in"))
+        paste_go.add_css_class("suggested-action"); paste_go.set_halign(Gtk.Align.START)
+        for widget in (heading, intro, btnrow, paste_entry, paste_go):
+            box.append(widget)
+        win.set_child(box)
+
+        def finish(redirect_uri=None):
+            if done[0]:
+                return
+            done[0] = True
+            if attempt is not None and attempt.close_auth is close_auth:
+                attempt.close_auth = None
+            if redirect_uri and not session.removed and (attempt is None or attempt.active()):
+                try:
+                    os.write(master, (redirect_uri + "\n").encode())
+                except OSError:
+                    pass
+            elif attempt is not None and not attempt.cancelled.is_set():
+                child = self._child_for(res["id"], session)
+                if child:
+                    self._cancel_connection(child, res, session, attempt)
+                else:
+                    attempt.cancel()
+            win.destroy()
+
+        def close_auth(*_):
+            finish()
+            return True
+
+        def do_copy(*_):
+            try:
+                copy_btn.get_clipboard().set(url)
+                copy_btn.set_label(tr("Copied"))
+            except Exception:
+                pass
+
+        def do_paste(*_):
+            frag = paste_entry.get_text().strip()
+            if frag:
+                finish(frag)
+
+        open_btn.connect("clicked", lambda *_: launch(url))
+        copy_btn.connect("clicked", do_copy)
+        paste_go.connect("clicked", do_paste)
+        paste_entry.connect("activate", do_paste)
+        win.connect("close-request", close_auth)
+        if attempt is not None:
+            attempt.close_auth = close_auth
+        launch(url)                 # open immediately, like the manual flow
+        win.present()
         return False
 
     # ---- tray icon ---------------------------------------------------------
