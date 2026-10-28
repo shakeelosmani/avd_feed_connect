@@ -92,15 +92,15 @@ from avd_feed_connect.gui.demo import demo_resources  # noqa: E402
 from avd_feed_connect.gui import storage, tray_menu, x11focus  # noqa: E402
 from avd_feed_connect.gui.tray import TrayIcon  # noqa: E402
 
-from avd_feed_connect.accounts import ProfileRegistry, profile_dir, claims_from_token  # noqa: E402
+from avd_feed_connect.accounts import (  # noqa: E402
+    ProfileRegistry, profile_dir, claims_from_token, LOCAL_PROFILE_ID)
 from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
 APP_VERSION = "0.8.0-dev (Gov browser sign-in + open .rdp test)"
-# The synthetic account that holds user-opened .rdp files (issue #17). Fixed id
-# so it persists across restarts and never collides with a real account's uuid.
-LOCAL_PROFILE_ID = "local-rdp-files"
+# LOCAL_PROFILE_ID (the synthetic account for user-opened .rdp files, issue #17)
+# is imported from avd_feed_connect.accounts, its single source of truth.
 
 
 class _LoopbackHandler(BaseHTTPRequestHandler):
@@ -147,9 +147,14 @@ class AvdApp(Gtk.Application):
             self.registry.migrate_legacy(TokenStore())
         self.accounts = {}
         for profile in self.registry.profiles:
-            self.accounts[profile['id']] = AccountSession(
-                profile, self.registry.client(profile['id']),
-                profile_dir(self.registry.root, profile['id']))
+            # A single malformed profile (e.g. a bad id) must not stop the app
+            # from starting with the rest of the accounts.
+            try:
+                self.accounts[profile['id']] = AccountSession(
+                    profile, self.registry.client(profile['id']),
+                    profile_dir(self.registry.root, profile['id']))
+            except (ValueError, KeyError, OSError):
+                continue
         self.selected_id = self.registry.selected_id
         self._adding = None
         self.win = None

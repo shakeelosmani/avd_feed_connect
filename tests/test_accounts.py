@@ -4,7 +4,8 @@ import os
 
 import pytest
 
-from avd_feed_connect.accounts import ProfileRegistry, claims_from_token, profile_dir
+from avd_feed_connect.accounts import (
+    LOCAL_PROFILE_ID, ProfileRegistry, claims_from_token, profile_dir)
 from avd_feed_connect.auth.tokens import TokenStore
 
 
@@ -32,6 +33,15 @@ def test_identity_and_selection_survive_restart(tmp_path):
 def test_profile_paths_reject_invalid_ids(tmp_path, bad):
     with pytest.raises(ValueError):
         profile_dir(str(tmp_path), bad)
+
+
+def test_profile_dir_allows_local_rdp_account(tmp_path):
+    # The synthetic local-.rdp account (issue #17) has a fixed, path-safe id
+    # that is not a 32-hex token identity; profile_dir must accept it.
+    path = profile_dir(str(tmp_path), LOCAL_PROFILE_ID)
+    assert os.path.basename(path) == LOCAL_PROFILE_ID
+    assert os.path.dirname(path) == os.path.join(str(tmp_path), 'accounts')
+    assert '..' not in LOCAL_PROFILE_ID and '/' not in LOCAL_PROFILE_ID
 
 
 @pytest.mark.parametrize('response', [{}, {'id_token': 'bad'}, token(oid='')])

@@ -14,8 +14,15 @@ from .auth.tokens import TokenStore
 from .client import AvdClient
 
 
+# Synthetic account that holds user-opened .rdp files (issue #17). It has no
+# feed and no token, so it never gets a 32-hex id from a token's identity the
+# way real accounts do; this fixed, path-safe id is allowed through below.
+LOCAL_PROFILE_ID = 'local-rdp-files'
+
+
 def profile_dir(root, profile_id):
-    if not isinstance(profile_id, str) or not re.fullmatch(r'[0-9a-f]{32}', profile_id):
+    if profile_id != LOCAL_PROFILE_ID and (
+            not isinstance(profile_id, str) or not re.fullmatch(r'[0-9a-f]{32}', profile_id)):
         raise ValueError(tr('Invalid account profile ID'))
     return os.path.join(root, 'accounts', profile_id)
 
