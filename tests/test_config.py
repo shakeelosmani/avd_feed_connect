@@ -90,8 +90,15 @@ def test_azure_arg_sovereign_authority_with_commercial_redirect(monkeypatch):
     arg = _config_for(monkeypatch, "usgov").azure_arg()
     assert "ad:login.microsoftonline.us" in arg
     assert "tenantid:common" in arg
-    assert ("avd-access:https%3A%2F%2Flogin.microsoftonline.com"
-            "%2Fcommon%2Foauth2%2Fnativeclient") in arg
+    # avd-access: is a printf format consumed by FreeRDP's winpr_asprintf, so the
+    # percents must be doubled (printf-literal) — a single % would be read as a
+    # bogus conversion and corrupt the redirect_uri (AADSTS90102). See azure_arg.
+    assert ("avd-access:https%%3A%%2F%%2Flogin.microsoftonline.com"
+            "%%2Fcommon%%2Foauth2%%2Fnativeclient") in arg
+    # once FreeRDP renders the format, the redirect_uri must decode to the exact
+    # commercial native-client URI the public client is registered for.
+    assert arg.split("avd-access:", 1)[1].replace("%%", "%") == \
+        "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
 
 
 def test_reset_config_to_commercial(monkeypatch):

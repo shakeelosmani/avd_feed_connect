@@ -86,12 +86,23 @@ def azure_arg():
     keeping the public Remote Desktop client's registered redirect on the
     *commercial* host (``avd-access:``) — that exact combination is what
     actually connects a US Gov AVD with a PIV smartcard from Linux (verified by
-    @cyberpil0t, #17). ``tenantid:common`` matches that working invocation."""
+    @cyberpil0t, #17). ``tenantid:common`` matches that working invocation.
+
+    ``avd-access:`` is not a literal URI: FreeRDP uses it as a printf *format*
+    string, ``winpr_asprintf(fmt, authority, tenantid)``, and drops the result
+    straight into ``&redirect_uri=`` **unencoded**. So the percent-encoding of
+    the redirect must be written with doubled ``%%`` (printf-literal percents),
+    exactly like FreeRDP's own default ``https%%3A%%2F%%2F%s%%2F%s%%2F…``; a
+    single ``%`` makes printf read ``%3A``/``%2F`` as bogus conversions and
+    corrupts the URI, which Entra then rejects with AADSTS90102 ('redirect_uri'
+    value must be a valid absolute URI). We hardcode the commercial host and
+    ``common`` tenant here rather than using ``%s``, so the two format args are
+    ignored."""
     if CLOUD == "commercial":
         return ""
     redirect = urllib.parse.quote(
         f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient",
-        safe="")
+        safe="").replace("%", "%%")
     return f"ad:{_C['authority']},tenantid:common,avd-access:{redirect}"
 
 HOME = os.path.expanduser("~")
