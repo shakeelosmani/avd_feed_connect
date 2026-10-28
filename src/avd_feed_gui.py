@@ -2270,10 +2270,19 @@ class AvdApp(Gtk.Application):
             try:
                 gfile = dlg.open_finish(result)
             except GLib.Error:
-                return                       # cancelled or failed — nothing to do
-            path = gfile.get_path() if gfile else None
-            if path:
-                self._import_rdp(path)
+                return                       # cancelled or dismissed — nothing to do
+            finally:
+                self._open_dialog = None     # release the kept reference
+            try:
+                path = gfile.get_path() if gfile else None
+                if path:
+                    self._import_rdp(path)
+            except Exception as error:       # never fail silently in the async cb
+                self._error(tr("Could not open that .rdp file: {error}").format(error=error))
+        # Keep a reference while the chooser is open: a Gtk.FileDialog held only
+        # in a local would be garbage-collected before its async callback fires,
+        # so picking a file silently did nothing (issue #17).
+        self._open_dialog = dialog
         dialog.open(parent, None, done)
 
     def _import_rdp(self, src_path):
