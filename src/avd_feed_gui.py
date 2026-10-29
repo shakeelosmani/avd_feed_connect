@@ -1979,10 +1979,16 @@ class AvdApp(Gtk.Application):
                  f"/scale-desktop:{scale}", "/log-level:info",
                  # bandwidth/quality + resilience + keepalive:
                  "+compression", "+fonts",
-                 "+auto-reconnect", "/auto-reconnect-max-retries:10",
                  # inject fake input so the Azure gateway doesn't idle-drop the
                  # session (which would otherwise force a reconnect + token re-mint)
                  "/prevent-session-lock:120"]
+        # Auto-reconnect is good for a network blip once connected, but on the
+        # bring-your-own-.rdp path the /azure CAC sign-in is interactive: a slow
+        # paste looks to FreeRDP like a failed connect, so it reconnects before a
+        # session exists, re-prompts "Browse to:", and can spawn a second desktop
+        # window (issue #17). Skip it there; the feed path keeps auto-reconnect.
+        if not session.local:
+            argv += ["+auto-reconnect", "/auto-reconnect-max-retries:10"]
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
         if mm in ("1", "on", "true", "yes"):
             want_multimon = True
@@ -2343,6 +2349,13 @@ class AvdApp(Gtk.Application):
                     os.write(master, b"\n")
                 except OSError:
                     pass
+            return False
+        # One sign-in window per attempt. If FreeRDP re-emits "Browse to:" while
+        # a window is still open (e.g. a slow CAC paste making it retry), don't
+        # stack a second window + browser launch on top — the open one is still
+        # waiting for the paste (issue #17). close_auth is cleared once that
+        # window finishes, so a genuinely later prompt still gets its own window.
+        if attempt is not None and attempt.close_auth is not None:
             return False
         done = [False]
 
