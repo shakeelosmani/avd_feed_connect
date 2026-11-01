@@ -60,6 +60,18 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.0" date="2026-11-01">
+      <description>
+        <ul>
+          <li>In-session WebAuthn/FIDO2 redirection: a hardware security key
+          (such as a YubiKey) plugged into your local machine can now be used
+          to authenticate inside the remote session — for example to sign in to
+          websites from within the AVD desktop. The bundled FreeRDP now builds
+          the RDPEWA channel with libfido2 for this. Contributed by
+          @diecknet.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-10-27">
       <description>
         <ul>
