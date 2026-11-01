@@ -31,6 +31,12 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.secrets         # login keyring (libsecret) for the refresh token
   - --env=LD_LIBRARY_PATH=/app/lib
+  # Reject the host's fonts app-wide (see fontconfig/fonts.conf). WebKitGTK's
+  # Skia backend enumerates every font family on first text layout; on hosts
+  # with thousands of fonts that hangs the sign-in WebView (issue #57). Pointing
+  # FONTCONFIG_FILE at a file under /app means WebKit's nested sandbox sees it,
+  # so we fix it without disabling the WebKit sandbox.
+  - --env=FONTCONFIG_FILE=/app/etc/fonts/fonts.conf
 
 # NOTE on ffmpeg: FreeRDP is built WITH_FFMPEG against the GNOME runtime's own
 # ffmpeg (its freedesktop base ships libav*). The org.freedesktop.Platform
@@ -214,6 +220,9 @@ modules:
         /app/share/applications/io.github.shakeelosmani.avd_feed_connect.desktop
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect.metainfo.xml
         /app/share/metainfo/io.github.shakeelosmani.avd_feed_connect.metainfo.xml
+      # App-wide fontconfig (FONTCONFIG_FILE in finish-args) — rejects host
+      # fonts so WebKit's font enumeration can't hang the sign-in WebView (#57).
+      - install -Dm644 fontconfig/fonts.conf /app/etc/fonts/fonts.conf
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect.svg
         /app/share/icons/hicolor/scalable/apps/io.github.shakeelosmani.avd_feed_connect.svg
       - install -Dm644 io.github.shakeelosmani.avd_feed_connect-symbolic.svg

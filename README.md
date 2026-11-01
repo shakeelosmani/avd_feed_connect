@@ -428,6 +428,17 @@ rather than a full password+MFA — unless the policy is strict enough to demand
 fresh credentials. The workspace you double-clicked then connects on its own
 once you're back in.
 
+### Blank sign-in window (many installed fonts)
+
+If the sign-in window opens **completely white and never loads**, with one CPU
+core pinned at 100%, the cause is WebKit's font backend trying to enumerate
+every installed font before it can render — which stalls on systems with a very
+large font set (thousands of families, e.g. a full `fonts-noto-*` install). The
+app ships a fontconfig that hides the host's fonts from itself to avoid this
+(it only needs the runtime's fonts), so a current build should not hit it. If
+you still do on an older build, update, or as a stopgap thin out the host fonts
+available to the Flatpak. This was [issue #57](https://github.com/shakeelosmani/avd_feed_connect/issues/57).
+
 ## Host pools that use NLA (username + password)
 
 Some AVD host pools aren't set up for **Microsoft Entra ID RDP authentication**
