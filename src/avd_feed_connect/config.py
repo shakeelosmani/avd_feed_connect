@@ -58,8 +58,15 @@ SCOPE = f"{_C['resource']} offline_access openid profile"
 DISCOVERY = f"https://{_C['feed']}/api/arm/feeddiscovery"
 LOGIN = f"https://{_C['authority']}/{TENANT}/oauth2/v2.0"
 # Registered redirect for the public MS Remote Desktop client; the browser
-# lands here (a blank page) with ?code=… after an interactive sign-in.
-REDIRECT = f"https://{_C['authority']}/common/oauth2/nativeclient"
+# lands here (a blank page) with ?code=… after an interactive sign-in. Always
+# the *commercial* host, even on a sovereign cloud: the public client's
+# nativeclient redirect is registered only on login.microsoftonline.com, so a
+# sovereign cloud overrides the sign-in authority (LOGIN) but still has to send
+# this .com redirect_uri or Entra rejects the authorize request with
+# AADSTS90102 ('redirect_uri' value must be a valid absolute URI). This mirrors
+# azure_arg(), which hardcodes the same .com redirect for the connection-time
+# token, and matches the single callback the MS RDP app actually registers.
+REDIRECT = f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient"
 # The feed service rejects unknown clients ("INCOMPATIBLE_CLIENT_VERSION /
 # Client did not send any User Agent approved header"); this is exactly the
 # X-MS-User-Agent the web client sends (clientType/clientVersion sdkType/sdk).
