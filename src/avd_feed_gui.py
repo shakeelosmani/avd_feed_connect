@@ -2062,6 +2062,10 @@ class AvdApp(Gtk.Application):
         state = {"connected": False, "attempt": attempt}
         buf = b""
         try:
+            # The local ".rdp files" account never runs a feed download, so its
+            # output_dir (…/feed) may not exist yet; create it so the session
+            # log isn't silently dropped to /dev/null (issue #17).
+            os.makedirs(os.path.dirname(logpath), mode=0o700, exist_ok=True)
             log = open(logpath, "xb")
         except OSError:
             log = open(os.devnull, "wb")
