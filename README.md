@@ -446,15 +446,15 @@ gateway — the password is only for the session-host logon.
 - If your host pool needs a specific domain instead of the empty default, set it
   in a workspace's **Advanced flags** (e.g. `/d:AzureAD`).
 
-## Microsoft Teams calls (no media optimization)
+## Microsoft Teams calls
 
-Teams **chat and file sharing work**, but Teams **calls and meetings are not
-media-optimized** with this client. Microsoft's Teams optimization — the
-*WebRTC Redirector* that hands call audio/video to the client over a dedicated
-virtual channel — is only implemented in the official Windows App and Microsoft
-Remote Desktop clients. FreeRDP has no such channel, so inside the session Teams
-falls back to running call media **on the session host itself** (you won't see
-the "AVD Media Optimized" banner).
+Teams **chat and file sharing work**. Teams **calls and meetings are not
+media-optimized out of the box** with this client. Microsoft's Teams
+optimization — the *WebRTC Redirector* that hands call audio/video to the client
+over a dedicated virtual channel — is only implemented in the official Windows
+App and Microsoft Remote Desktop clients. Upstream FreeRDP has no such channel,
+so inside the session Teams falls back to running call media **on the session
+host itself** (you won't see the "AVD Media Optimized" banner).
 
 That fallback only works if the **session host** can reach Teams' media relays
 directly — in particular outbound **UDP 3478–3481** to the Teams/Microsoft 365
@@ -464,11 +464,29 @@ inside the session fail to connect (Teams logs a `MediaWhitelistingIssue` /
 Windows App, where media is redirected to the local device instead.
 
 Your microphone and camera themselves still reach the session via normal device
-redirection; this is specifically about Teams' optimized call path. Options if
-you need calls: ask your admins to permit the session host's outbound UDP to the
-Teams relays, or place the call from a Teams client outside the VM. Implementing
-the redirector itself is a large, Microsoft-specific protocol effort and is out
-of scope for now.
+redirection; this is specifically about Teams' optimized call path.
+
+### Experimental: the `teams-redir` add-in
+
+[**freerdp-teams-redir**](https://github.com/vchegwidden/freerdp-teams-redir) is
+a separate, unofficial FreeRDP 3 add-in that implements the client side of that
+redirector for **audio and video calls**, so call media uses your local
+microphone, speakers and camera instead of the session host's own route to the
+Teams relays. It is loaded as a dynamic virtual channel with
+`/dvc:teams-redir`.
+
+- **It is not bundled** with this app or its Flatpak. It has to be built and
+  installed into a FreeRDP 3 build that can load it, then pointed at with
+  `AVD_SDL_FREERDP`; add `/dvc:teams-redir` in the workspace's **Advanced
+  flags** (or `AVD_EXTRA_ARGS`) if your build doesn't load it by default. See
+  the project's README for requirements and build steps.
+- **It is early-stage.** Audio and video calls work; sharing your own screen is
+  not supported, remote video opens in separate windows, and because it runs
+  inside the FreeRDP process a crash in it can end the session.
+
+If you can't use the add-in, the options for calls are: ask your admins to
+permit the session host's outbound UDP to the Teams relays, or place the call
+from a Teams client outside the VM.
 
 ## Status
 
