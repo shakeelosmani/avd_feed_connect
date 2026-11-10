@@ -55,6 +55,12 @@ def test_workspace_falls_back_to_publisher():
     assert items[0]["label"] == "PUB"
 
 
+def test_workspace_prefers_workspace_name_over_tenant():
+    items = build_menu([{"id": "a", "title": "Dev", "workspace": "AVD-RemoteApps",
+                         "tenant": "Contoso", "publisher": "Pub"}], {})
+    assert items[0]["label"] == "AVD-REMOTEAPPS"
+
+
 def test_account_actions_keep_owner_with_identical_resource_ids():
     from avd_feed_connect.gui.tray_menu import build_accounts_menu
     accounts = [{'id': 'a', 'upn': 'a@example.com', 'resources': [_res('same', 'Desktop')]},

@@ -20,7 +20,16 @@ def item(label, action=None, enabled=True, children=None):
 
 
 def workspace_name(res):
-    return res.get("tenant") or res.get("publisher") or _("Workspaces")
+    return (res.get("workspace") or res.get("tenant") or res.get("publisher")
+            or _("Workspaces"))
+
+
+def group_resources(resources):
+    """Preserve feed order while grouping resources under their AVD workspace."""
+    groups = {}
+    for res in resources:
+        groups.setdefault(workspace_name(res), []).append(res)
+    return groups
 
 
 def _resource_item(res, session):
@@ -43,9 +52,7 @@ def build_menu(resources, sessions, *, include_footer=True):
     """Menu for ``resources`` (feed dicts, in grid order). ``sessions`` maps a
     resource id to {"state": "idle"|"connecting"|"connected", "running": bool}.
     Set ``include_footer=False`` when embedding workspace groups in a submenu."""
-    groups = {}
-    for res in resources:
-        groups.setdefault(workspace_name(res), []).append(res)
+    groups = group_resources(resources)
     items = []
     if not resources:
         items.append(item(_("No workspaces yet"), enabled=False))

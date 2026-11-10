@@ -47,6 +47,7 @@ def test_enumerate_flattens_resources(monkeypatch, tmp_path):
     assert desktop["type"] == "Desktop"
     assert desktop["publisher"] == "Contoso IT"
     assert desktop["tenant"] == "Contoso"
+    assert desktop["workspace"] == "Contoso"  # WorkspaceName absent → TenantDisplayName
     assert desktop["rdp_url"] == "https://rdweb.wvd.microsoft.com/r1.rdp"
     assert desktop["icon32"] == "https://rdweb.wvd.microsoft.com/r1.png"
 
@@ -76,3 +77,28 @@ def test_untrusted_feed_url_is_skipped_without_sending_token(monkeypatch, tmp_pa
     monkeypatch.setattr(http, "get", get)
     assert FeedClient().enumerate("token") == []
     assert sent == []
+
+
+_DISCOVERY_TWO_XML = """<?xml version="1.0"?>
+<TenantFeedURLs>
+  <TenantFeedURL FeedURL="https://rdweb.wvd.microsoft.com/f0" TenantId="t1"
+                 TenantDisplayName="Contoso" WorkspaceName="Admin Workspace T1"/>
+  <TenantFeedURL FeedURL="https://rdweb.wvd.microsoft.com/f1" TenantId="t2"
+                 TenantDisplayName="Contoso" WorkspaceName="AVD-RemoteApps"/>
+</TenantFeedURLs>"""
+
+
+def test_enumerate_keeps_workspace_name_from_each_feed(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "OUT", str(tmp_path))
+
+    def fake_get(url, token, accept="*/*"):
+        if url == config.DISCOVERY:
+            return 200, {}, _DISCOVERY_TWO_XML
+        return 200, {}, _FEED_XML
+
+    monkeypatch.setattr(http, "get", fake_get)
+    resources = FeedClient().enumerate("token")
+    assert [r["workspace"] for r in resources] == (
+        ["Admin Workspace T1", "Admin Workspace T1",
+         "AVD-RemoteApps", "AVD-RemoteApps"])
+    assert {r["tenant"] for r in resources} == {"Contoso"}

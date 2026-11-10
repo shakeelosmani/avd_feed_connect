@@ -81,6 +81,13 @@ menubutton.acct-btn > button:hover { border-color:@avd_border_strong; background
 .section-h { font-weight:800; font-size:11px; letter-spacing:1px; color:@avd_muted; }
 .count { font-size:12px; color:@avd_faint; }
 
+expander.workspace-group { padding:0; min-height:36px; }
+expander.workspace-group > title { padding:6px 4px; border-radius:8px; }
+expander.workspace-group > title:hover { background:alpha(@avd_ink,0.05); }
+expander.workspace-group > title > label {
+  font-weight:700; font-size:15px; color:@avd_ink; }
+expander.workspace-group arrow { color:@avd_muted; min-width:16px; min-height:16px; }
+
 flowbox, flowboxchild { background:none; padding:0; border:none; box-shadow:none; }
 flowboxchild:selected, flowboxchild:focus, flowboxchild:active { background:none; }
 

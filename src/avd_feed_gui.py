@@ -169,6 +169,7 @@ class AvdApp(Gtk.Application):
         self.status = None
         self._account_sections = {}
         self._account_status_widgets = {}
+        self._workspace_expanded = {}  # (account id, workspace name) → bool
         self._tiles = []            # GTK4 FlowBox has no get_children(); track ours
         self._signout_item = None
         self._scale = 1             # client display scale factor (1 or 2 = HiDPI)
@@ -1796,22 +1797,25 @@ class AvdApp(Gtk.Application):
                 self._account_status_widgets[owner.id] = (status_label, signin)
                 row.set_visible(bool(message) or not owner.resources)
                 section.append(row)
-            groups = {}
-            for resource in owner.resources:
-                groups.setdefault((resource.get("tenant_id", ""), resource.get("tenant") or "Workspace"), []).append(resource)
-            if self.view_mode != "all":
-                groups = {("", ""): owner.resources}
-            for (_, workspace), resources in groups.items():
-                if workspace:
-                    label = Gtk.Label(label=workspace, xalign=0, margin_start=22, wrap=True)
-                    label.add_css_class("status")
-                    section.append(label)
+            for workspace, resources in tray_menu.group_resources(owner.resources).items():
+                key = (owner.id, workspace)
+                expander = Gtk.Expander(label=workspace,
+                                        expanded=self._workspace_expanded.get(key, True))
+                expander.add_css_class("workspace-group")
+                expander.set_hexpand(True)
+                for m, v in (("start", 22), ("end", 22), ("top", 4), ("bottom", 2)):
+                    getattr(expander, f"set_margin_{m}")(v)
+                expander.connect(
+                    "notify::expanded",
+                    lambda widget, _pspec, k=key: self._workspace_expanded.__setitem__(
+                        k, widget.get_expanded()))
                 grid = Gtk.FlowBox(valign=Gtk.Align.START, max_children_per_line=5,
                                    min_children_per_line=2, row_spacing=14, column_spacing=14,
                                    homogeneous=True, selection_mode=Gtk.SelectionMode.NONE,
-                                   margin_top=8, margin_bottom=18, margin_start=22, margin_end=22)
+                                   margin_top=8, margin_bottom=10, margin_start=8)
                 grid.connect("child-activated", self._on_tile_activated)
-                section.append(grid)
+                expander.set_child(grid)
+                section.append(expander)
                 self.grid = grid
                 for res in resources:
                     child = owner.tiles.get(res["id"])
@@ -1931,7 +1935,7 @@ class AvdApp(Gtk.Application):
         child._launching = False
         bind(child, 'tooltip_text',
             tr("{resource} — {workspace}\nDouble-click to connect · right-click for this workspace's settings").format(
-                resource=res["title"], workspace=res["tenant"]))
+                resource=res["title"], workspace=tray_menu.workspace_name(res)))
         rclick = Gtk.GestureClick()
         rclick.set_button(3)
         rclick.connect("pressed", lambda g, n, x, y, r=res: self._open_settings(r, session))

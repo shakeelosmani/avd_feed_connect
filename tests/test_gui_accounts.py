@@ -517,6 +517,50 @@ def test_unified_alias_workspace_groups_and_refresh_are_independent(app, monkeyp
     assert calls == [b.id]
 
 
+def find_widgets(widget, cls):
+    found = [widget] if isinstance(widget, cls) else []
+    child = widget.get_first_child()
+    while child:
+        found.extend(find_widgets(child, cls))
+        child = child.get_next_sibling()
+    return found
+
+
+def test_account_view_groups_resources_into_collapsible_workspaces(app):
+    owner = add_saved(app, 'a', 'a@example.com')
+    owner.resources = [
+        {'id': 'one', 'title': 'Access', 'tenant': 'Admin Workspace T1', 'type': 'RemoteApp'},
+        {'id': 'two', 'title': 'Chrome', 'tenant': 'AVD-RemoteApps', 'type': 'RemoteApp'},
+        {'id': 'three', 'title': 'Edge', 'workspace': 'AVD-RemoteApps',
+         'tenant': 'Contoso', 'type': 'RemoteApp'},
+    ]
+    app._select_account(owner.id)
+    drain()
+    expanders = find_widgets(app._resource_box, Gtk.Expander)
+    assert [expander.get_label() for expander in expanders] == [
+        'Admin Workspace T1', 'AVD-RemoteApps']
+    assert all(expander.get_expanded() for expander in expanders)
+    assert all(isinstance(expander.get_child(), Gtk.FlowBox) for expander in expanders)
+    assert [child._res['title'] for child in app._tiles] == ['Access', 'Chrome', 'Edge']
+    expanders[1].set_expanded(False)
+    app._render_resources()
+    expanders = find_widgets(app._resource_box, Gtk.Expander)
+    assert [expander.get_expanded() for expander in expanders] == [True, False]
+
+
+def test_unified_view_nests_workspace_expanders_under_account(app):
+    a, b = add_saved(app, 'a', 'a@example.com'), add_saved(app, 'b', 'b@example.com')
+    a.resources += [dict(a.resources[0], id='second', workspace='AVD-RemoteApps')]
+    app._select_account(a.id)
+    app._set_view_mode('all')
+    drain()
+    section = app._account_sections[a.id]
+    expanders = find_widgets(section, Gtk.Expander)
+    assert [expander.get_label() for expander in expanders] == ['a', 'AVD-RemoteApps']
+    assert section.get_first_child().get_text().startswith(a.display_name)
+    assert find_widgets(app._account_sections[b.id], Gtk.Expander)[0].get_label() == 'b'
+
+
 @pytest.mark.parametrize('count', [0, 1, 2])
 def test_restart_restores_mode_and_selection_or_clamps_to_single_account(app, count):
     owners = [add_saved(app, str(i), f'person{i}@example.com') for i in range(count)]
