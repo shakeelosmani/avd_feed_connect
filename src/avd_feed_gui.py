@@ -622,7 +622,13 @@ class AvdApp(Gtk.Application):
         self._connect_spinner = Gtk.Spinner(); self._connect_spinner.set_size_request(42, 42)
         self._connect_label = create(Gtk.Label, label=tr("Connecting…")); self._connect_label.add_css_class("connect-label")
         csub = create(Gtk.Label, label=tr("Securing your session")); csub.add_css_class("connect-sub")
-        cbox.append(self._connect_spinner); cbox.append(self._connect_label); cbox.append(csub)
+        # In full-screen (and especially multi-monitor) the only way out of the
+        # session is a keyboard shortcut; surface it before the desktop takes
+        # over the screen. Right Shift is the shipped modifier (issue #62).
+        chint = create(Gtk.Label, wrap=True,
+                       label=tr("Right Shift + M minimizes the session · Right Shift + D disconnects"))
+        chint.add_css_class("connect-sub")
+        cbox.append(self._connect_spinner); cbox.append(self._connect_label); cbox.append(csub); cbox.append(chint)
         cbox.set_visible(False)
         cancel_connect = Gtk.Button.new_from_icon_name("window-close-symbolic")
         bind(cancel_connect, 'tooltip_text', tr("Cancel pending connections"))
@@ -1615,7 +1621,15 @@ class AvdApp(Gtk.Application):
         child._launching = False
         self._set_connecting(res["id"], res["title"], False, session, attempt=attempt)  # ensure overlay clears
         self._set_tile_state(res["id"], "state-ended", session, attempt=attempt)
-        self._set_status(tr("{resource} session ended").format(resource=res['title']), session, attempt=attempt)
+        if state.get("monitor_error") and not state["connected"]:
+            self._set_status(tr("Couldn't start multi-monitor"), session, attempt=attempt)
+            self._error(tr(
+                "Multi-monitor couldn't start: your displays use fractional "
+                "scaling (for example 145%), which the remote desktop can't lay "
+                "out across monitors. Set every display to a whole-number scale "
+                "(100%, 150% or 200%), or connect using a single monitor."))
+        else:
+            self._set_status(tr("{resource} session ended").format(resource=res['title']), session, attempt=attempt)
         GLib.timeout_add_seconds(
             6, lambda: (self._set_tile_state(res["id"], None, session, attempt=attempt), False)[1])
 
@@ -1624,6 +1638,13 @@ class AvdApp(Gtk.Application):
         attempt = state.get("attempt", getattr(child, "_attempt", None))
         if attempt is not None and not attempt.active():
             return
+        # FreeRDP rejects a multi-monitor layout it reads as overlapping or
+        # gapped — on Wayland compositors with fractional scaling (e.g. 145%)
+        # the monitor positions come through wrong, failing pre-connect. Flag
+        # it so the exit handler can explain the fix (issue #62). "operlaps" is
+        # FreeRDP's own spelling.
+        if "monitor_operlaps" in line or "monitor_has_gaps" in line:
+            state["monitor_error"] = True
         if not state["connected"] and "Logon Info" in line:
             state["connected"] = True
             decision = getattr(child, "_security_decision", None)
