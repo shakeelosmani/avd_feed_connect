@@ -2158,8 +2158,14 @@ class AvdApp(Gtk.Application):
                 # Resolve on the main thread (WebKit must run there). A local
                 # .rdp is for tenants whose CA needs a smart card / CAC, which
                 # the embedded WebView can't present — so send those through the
-                # system browser instead (issue #17).
-                resolver = self._resolve_aad_browser if session.local else self._resolve_aad
+                # system browser instead (issue #17). Sovereign clouds (Gov) are
+                # the same case: their accounts are CAC-backed, and the embedded
+                # WebView has no smart-card reader, so the feed route's
+                # connection-time prompt failed cert validation there too. Route
+                # those through the system browser as well (issue #61).
+                # Commercial keeps the seamless SSO-cookie WebView (no paste).
+                use_browser = session.local or config.CLOUD != "commercial"
+                resolver = self._resolve_aad_browser if use_browser else self._resolve_aad
                 GLib.idle_add(resolver, master, url, res, session, attempt)
             else:
                 # Never load an arbitrary URL in the SSO-cookie WebView; a blank
