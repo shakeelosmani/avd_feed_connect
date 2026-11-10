@@ -1250,7 +1250,17 @@ class AvdApp(Gtk.Application):
         dlg.connect("destroy", on_closed)
         dlg.connect("close-request", lambda w: (w.destroy(), True)[1])
 
-        begin_loopback()
+        # Loopback auto-capture (http://localhost:<port>) only works where that
+        # redirect is registered for the public MS Remote Desktop client. On
+        # sovereign clouds it is NOT — every Gov tester hits AADSTS50011
+        # "redirect URI 'http://localhost:…' does not match" after a successful
+        # CAC sign-in. Go straight to the nativeclient paste there (that .com
+        # redirect IS registered — see config.REDIRECT). Commercial keeps the
+        # nicer no-paste loopback flow.
+        if config.CLOUD == "commercial":
+            begin_loopback()
+        else:
+            begin_paste()
         dlg.present()
 
     def _browser_complete(self, session, dlg, verifier, redirect_uri, qs,
