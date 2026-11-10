@@ -157,3 +157,31 @@ def set_rdp_multimon(path, enabled):
             f.write("\n".join(out) + "\n")
     except OSError:
         pass
+
+
+def set_rdp_drivestoredirect(path, enabled):
+    """Set ``drivestoredirect`` so the feed file does not block client drive shares.
+
+    Many RemoteApp .rdp files ship ``drivestoredirect:s:`` (empty = no drives).
+    Desktop feeds often already have ``*``. When the user enables a shared
+    folder we force ``*`` so FreeRDP's ``+home-drive`` / ``/drive:`` flags are
+    not ignored. Safe to no-op on any I/O error.
+    """
+    val = "*" if enabled else ""
+    try:
+        with open(path) as f:
+            lines = f.read().splitlines()
+        out, found = [], False
+        for ln in lines:
+            head = ln.partition(":")[0].strip().lower()
+            if head == "drivestoredirect":
+                out.append(f"drivestoredirect:s:{val}")
+                found = True
+            else:
+                out.append(ln)
+        if not found and enabled:
+            out.append(f"drivestoredirect:s:{val}")
+        with open(path, "w") as f:
+            f.write("\n".join(out) + "\n")
+    except OSError:
+        pass

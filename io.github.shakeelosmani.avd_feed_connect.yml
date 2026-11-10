@@ -46,6 +46,9 @@ finish-args:
   - --socket=pcsc                   # host pcscd → smartcard (PIV/CAC) redirection
   - --device=dri                    # GPU for the RDP graphics pipeline
   - --device=all                    # webcam (camera redirection) + input
+  # Home directory for optional Shared folder redirection (+home-drive / /drive:).
+  # Without this the Flatpak sandbox cannot expose local files to the remote PC.
+  - --filesystem=home
   - --talk-name=io.github.shakeelosmani.AvdWorkspaces  # optional GNOME workspace extension
   - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
   - --talk-name=org.freedesktop.Notifications

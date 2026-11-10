@@ -143,6 +143,39 @@ def test_argv_cert_ignore_opt_out(tmp_path, monkeypatch):
     assert "/cert:tofu" not in argv
 
 
+def test_argv_share_home_via_env(tmp_path, monkeypatch):
+    from avd_feed_connect.rdp import drive_redirect_args, resolve_share_mode
+    monkeypatch.setenv("AVD_SHARE", "home")
+    path = _rdp(tmp_path, "drivestoredirect:s:\n")
+    mode, share_path = resolve_share_mode()
+    assert mode == "home"
+    args = drive_redirect_args(path, mode, share_path)
+    assert args == ["+home-drive"]
+    assert "drivestoredirect:s:*" in open(path).read()
+    argv = build_argv("sdl-freerdp", path, "")
+    assert "+home-drive" in argv
+
+
+def test_drive_redirect_custom_path(tmp_path, monkeypatch):
+    from avd_feed_connect.rdp import drive_redirect_args
+    monkeypatch.delenv("AVD_SHARE", raising=False)
+    folder = tmp_path / "shareme"
+    folder.mkdir()
+    path = _rdp(tmp_path, "drivestoredirect:s:\n")
+    args = drive_redirect_args(path, "custom", str(folder))
+    assert args == [f"/drive:share,{folder}"]
+    assert "drivestoredirect:s:*" in open(path).read()
+
+
+def test_drive_redirect_skips_when_extra_has_drive(tmp_path, monkeypatch):
+    from avd_feed_connect.rdp import drive_redirect_args
+    monkeypatch.delenv("AVD_SHARE", raising=False)
+    path = _rdp(tmp_path, "drivestoredirect:s:\n")
+    assert drive_redirect_args(path, "home", extra="+home-drive") == []
+    assert drive_redirect_args(path, "home", extra='/drive:docs,"/tmp"') == []
+    assert "drivestoredirect:s:*" not in open(path).read()
+
+
 def _rdp(tmp_path, body):
     p = tmp_path / "x.rdp"
     p.write_text(body)
