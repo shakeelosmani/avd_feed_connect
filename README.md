@@ -448,45 +448,44 @@ gateway — the password is only for the session-host logon.
 
 ## Microsoft Teams calls
 
-Teams **chat and file sharing work**. Teams **calls and meetings are not
-media-optimized out of the box** with this client. Microsoft's Teams
-optimization — the *WebRTC Redirector* that hands call audio/video to the client
-over a dedicated virtual channel — is only implemented in the official Windows
-App and Microsoft Remote Desktop clients. Upstream FreeRDP has no such channel,
-so inside the session Teams falls back to running call media **on the session
-host itself** (you won't see the "AVD Media Optimized" banner).
+Teams **chat and file sharing work**, and **call audio (plus, experimentally,
+video) can be media-optimized** by a bundled add-in — see *Teams call
+optimization* below. Microsoft's Teams optimization, the *WebRTC Redirector*
+that hands call media to the client over a dedicated virtual channel, is
+officially only in the Windows App and Microsoft Remote Desktop clients, and
+upstream FreeRDP has no such channel.
 
-That fallback only works if the **session host** can reach Teams' media relays
-directly — in particular outbound **UDP 3478–3481** to the Teams/Microsoft 365
-media IP ranges. On host pools where that egress is locked down, calls started
-inside the session fail to connect (Teams logs a `MediaWhitelistingIssue` /
-`no relays` ICE error) even though the same account places calls fine from the
-Windows App, where media is redirected to the local device instead.
+With optimization **off** (the default), Teams runs call media **on the session
+host itself** (no "AVD Media Optimized" banner). That only works if the host can
+reach Teams' media relays directly — outbound **UDP 3478–3481** to the
+Teams/Microsoft 365 media IP ranges. On host pools where that egress is locked
+down, calls started inside the session fail to connect (Teams logs a
+`MediaWhitelistingIssue` / `no relays` ICE error) even though the same account
+places calls fine from the Windows App, where media is redirected to the local
+device instead.
 
-Your microphone and camera themselves still reach the session via normal device
-redirection; this is specifically about Teams' optimized call path.
+### Teams call optimization (beta)
 
-### Experimental: the `teams-redir` add-in
+The app bundles [**freerdp-teams-redir**](https://github.com/vchegwidden/freerdp-teams-redir),
+an unofficial FreeRDP 3 add-in that implements the client side of that
+redirector, so call media runs on **your local microphone, speakers and camera**
+via libwebrtc instead of the session host's route to the Teams relays. Turn it
+on in **Settings → Optimize Teams calls** (off by default). After connecting,
+**restart Teams in the session once**; Teams then shows **"AVD media
+optimized"** on a call.
 
-[**freerdp-teams-redir**](https://github.com/vchegwidden/freerdp-teams-redir) is
-a separate, unofficial FreeRDP 3 add-in that implements the client side of that
-redirector for **audio and video calls**, so call media uses your local
-microphone, speakers and camera instead of the session host's own route to the
-Teams relays. It is loaded as a dynamic virtual channel with
-`/dvc:teams-redir`.
+- **Audio is the solid part**, and is what the setting enables on its own.
+- **Camera and video are experimental** and off by default (a second, nested
+  checkbox). While optimization is on, Teams takes its camera from this add-in,
+  so with video **off** a call has **no camera** — other apps in the session
+  still use the normal redirected camera as usual. With video **on** you get
+  your webcam in calls, but it is early: your video opens in a separate window,
+  sharing your own screen is not supported, and because the add-in runs inside
+  the FreeRDP process a crash in it can end the session.
 
-- **It is not bundled** with this app or its Flatpak. It has to be built and
-  installed into a FreeRDP 3 build that can load it, then pointed at with
-  `AVD_SDL_FREERDP`; add `/dvc:teams-redir` in the workspace's **Advanced
-  flags** (or `AVD_EXTRA_ARGS`) if your build doesn't load it by default. See
-  the project's README for requirements and build steps.
-- **It is early-stage.** Audio and video calls work; sharing your own screen is
-  not supported, remote video opens in separate windows, and because it runs
-  inside the FreeRDP process a crash in it can end the session.
-
-If you can't use the add-in, the options for calls are: ask your admins to
-permit the session host's outbound UDP to the Teams relays, or place the call
-from a Teams client outside the VM.
+With optimization off, the options for calls are the host-side path above: ask
+your admins to permit the session host's outbound UDP to the Teams relays, or
+place the call from a Teams client outside the VM.
 
 ## Status
 

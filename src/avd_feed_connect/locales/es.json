@@ -155,5 +155,10 @@
   "Open RemoteApp as": "Abrir RemoteApp como",
   "Automatic (app window)": "Automático (ventana de la aplicación)",
   "Full desktop": "Escritorio completo",
-  "Full desktop opens the whole remote PC so you can launch the app yourself — use this if the app window never appears.": "Escritorio completo abre todo el equipo remoto para que pueda iniciar la aplicación usted mismo; use esta opción si la ventana de la aplicación nunca aparece."
+  "Full desktop opens the whole remote PC so you can launch the app yourself — use this if the app window never appears.": "Escritorio completo abre todo el equipo remoto para que pueda iniciar la aplicación usted mismo; use esta opción si la ventana de la aplicación nunca aparece.",
+  "TEAMS CALLS (BETA)": "LLAMADAS DE TEAMS (BETA)",
+  "Optimize Teams calls": "Optimizar las llamadas de Teams",
+  "Experimental camera and video": "Cámara y vídeo experimentales",
+  "Needs a FreeRDP build with the Teams add-in": "Requiere una versión de FreeRDP con el complemento de Teams",
+  "Optimized calls carry audio only unless camera and video is on, because Teams then takes its camera from here. Other apps keep using the redirected camera as usual.": "Las llamadas optimizadas solo llevan audio a menos que la cámara y el vídeo estén activados, porque entonces Teams toma su cámara desde aquí. Las demás aplicaciones siguen usando la cámara redirigida con normalidad."
 }
