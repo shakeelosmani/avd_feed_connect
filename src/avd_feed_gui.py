@@ -499,6 +499,35 @@ class AvdApp(Gtk.Application):
             self._tray_toggles.append(cb)
         pbox.append(Gtk.Separator())
 
+        # Teams call optimization (beta): runs Teams call media on the local
+        # machine via the freerdp-teams-redir add-in. Inert on the stock client
+        # (the add-in is not bundled), so the row is insensitive without it.
+        teamsh = create(Gtk.Label, label=tr("TEAMS CALLS (BETA)"), xalign=0)
+        teamsh.add_css_class("menu-head")
+        teamsh.set_margin_start(4); teamsh.set_margin_top(2)
+        pbox.append(teamsh)
+        teams_ok = self._teams_plugin_available()
+        beta_cb = create(Gtk.CheckButton, label=tr("Optimize Teams calls"))
+        beta_cb.set_active(bool(self._settings.get("_teams_redir")))
+        beta_cb.set_sensitive(teams_ok)
+        cam_cb = create(Gtk.CheckButton, label=tr("Experimental camera and video"))
+        cam_cb.set_active(bool(self._settings.get("_teams_redir_camera")))
+        cam_cb.set_margin_start(18)
+        cam_cb.set_sensitive(teams_ok and bool(self._settings.get("_teams_redir")))
+        if not teams_ok:
+            for cb in (beta_cb, cam_cb):
+                bind(cb, 'tooltip_text',
+                     tr("Needs a FreeRDP build with the Teams add-in"))
+
+        def _on_teams_beta(btn):
+            self._set_flag("_teams_redir", btn.get_active())
+            cam_cb.set_sensitive(teams_ok and btn.get_active())
+        beta_cb.connect("toggled", _on_teams_beta)
+        cam_cb.connect("toggled",
+                       lambda btn: self._set_flag("_teams_redir_camera", btn.get_active()))
+        pbox.append(beta_cb); pbox.append(cam_cb)
+        pbox.append(Gtk.Separator())
+
         setbtn = create(Gtk.Button, label=tr("Default settings…")); setbtn.add_css_class("flat")
         setbtn.connect("clicked", lambda *_: (settings_pop.popdown(), self._open_settings(None)))
         pbox.append(setbtn)
@@ -1437,6 +1466,25 @@ class AvdApp(Gtk.Application):
         if config.SDL_LIBS and os.path.isdir(config.SDL_LIBS):
             env["LD_LIBRARY_PATH"] = config.SDL_LIBS + (
                 os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+        # Teams call optimization (beta): load the freerdp-teams-redir add-in so
+        # Teams call media runs on the LOCAL mic/speakers (and, experimentally,
+        # camera) via libwebrtc instead of the session host. Opt-in, and only
+        # when a FreeRDP carrying the add-in is in use (the bundled client has
+        # none, so this is inert there). The /dvc flag is appended to argv below.
+        teams_redir = bool(self._settings.get("_teams_redir")) \
+            and self._teams_plugin_available()
+        if teams_redir:
+            # Never write transcripts: they hold TURN creds / ICE passwords.
+            env["TEAMS_REDIR_TRANSCRIPTS"] = "off"
+            if self._settings.get("_teams_redir_camera"):
+                # Experimental video: hold a closed video window a little longer
+                # to smooth Teams' frequent open/close churn. VAAPI stays off
+                # (the Intel HW encoder crashes the client).
+                env.setdefault("TEAMS_REDIR_VIDEO_KEEP_MS", "8000")
+            else:
+                # Audio-optimized only (stable): no camera encode, no separate
+                # video windows, no renegotiation churn, far lower power draw.
+                env["TEAMS_REDIR_VIDEO"] = "off"
         safe = _re.sub(r"[^A-Za-z0-9]+", "_", res["title"])[:40]
         logpath = session_log_path(
             session.client.output_dir,
@@ -1486,6 +1534,8 @@ class AvdApp(Gtk.Application):
                  # inject fake input so the Azure gateway doesn't idle-drop the
                  # session (which would otherwise force a reconnect + token re-mint)
                  "/prevent-session-lock:120"]
+        if teams_redir:
+            argv.append("/dvc:teams-redir")
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
         if mm in ("1", "on", "true", "yes"):
             want_multimon = True
@@ -1803,6 +1853,26 @@ class AvdApp(Gtk.Application):
         else:
             self._settings.pop(key, None)
         storage.save_settings(self._settings)
+
+    def _set_flag(self, key, on):
+        """Persist an app-wide boolean setting (present=on, absent=off)."""
+        if on:
+            self._settings[key] = True
+        else:
+            self._settings.pop(key, None)
+        storage.save_settings(self._settings)
+
+    def _teams_plugin_available(self):
+        """True when the FreeRDP in use carries the freerdp-teams-redir add-in
+        (libteams-redir-client.so in its lib/freerdp3). The add-in is not
+        bundled: it exists only when AVD_SDL_FREERDP points at a build that has
+        it, so the Teams-optimization setting stays inert on the stock client."""
+        try:
+            prefix = os.path.dirname(os.path.dirname(config.SDL))
+            return os.path.isfile(os.path.join(
+                prefix, "lib", "freerdp3", "libteams-redir-client.so"))
+        except OSError:
+            return False
 
     def _on_close_request(self, win):
         # Opted in and a tray can bring it back: closing only hides the window
