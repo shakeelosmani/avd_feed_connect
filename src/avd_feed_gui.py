@@ -94,7 +94,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.10.0"
 
 
 
