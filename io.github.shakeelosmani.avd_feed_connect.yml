@@ -15,6 +15,15 @@ runtime-version: '51'
 sdk: org.gnome.Sdk
 command: avd-feed-connect
 
+# Build-time only: the Teams call-optimization add-in (freerdp-teams-redir,
+# built below) is a Rust/libwebrtc FreeRDP plugin. It needs the Rust toolchain
+# and clang — its vendored libwebrtc's hermetic libc++ requires clang >= 21,
+# which the 25.08 LLVM extension (llvmorg-21.1.x) provides. Neither extension
+# is in the finished app.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm
+
 finish-args:
   - --share=network                 # feed discovery, AAD sign-in, RDP gateway
   - --share=ipc
@@ -199,6 +208,41 @@ modules:
       - type: patch
         paths:
           - patches/freerdp-0001-client-sdl-strip-terminating-null-from-local-text.patch
+
+  # ---- Teams call-optimization add-in (freerdp-teams-redir) --------------
+  # Unofficial FreeRDP 3 DVC plugin: runs Teams call media on the LOCAL
+  # mic/speakers/camera via libwebrtc instead of the session host. Loaded at
+  # connect time with /dvc:teams-redir when the app's "Optimize Teams calls"
+  # (beta) setting is on; inert otherwise. Built against the FreeRDP above and
+  # installed into its plugin dir. Network is enabled for THIS module only
+  # (Cargo crates, cbindgen, and the ~150 MB LiveKit libwebrtc prebuilt it
+  # downloads); this bundle is self-distributed, not Flathub, so that is
+  # allowed. The add-in and its SDL3 video helper link the bundled FreeRDP and
+  # SDL3; nothing from the Rust/LLVM SDK extensions ships in the app.
+  - name: teams-redir
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm/lib
+      build-args:
+        - --share=network
+      env:
+        CARGO_HOME: /run/build/teams-redir/.cargo
+    build-commands:
+      - cargo install cbindgen --root /run/build/teams-redir/.tools
+      - export PATH="/run/build/teams-redir/.tools/bin:$PATH"
+        CC=clang CXX=clang++ LIBCLANG_PATH=/usr/lib/sdk/llvm/lib
+        PKG_CONFIG_PATH=/app/lib/pkgconfig &&
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+        cmake --build build
+      - install -Dm644 build/libteams-redir-client.so
+        /app/lib/freerdp3/libteams-redir-client.so
+      - install -Dm755 build/cargo/release/teams-redir-video
+        /app/lib/freerdp3/teams-redir-video
+    sources:
+      - type: git
+        url: https://github.com/vchegwidden/freerdp-teams-redir.git
+        commit: 54051fdc5e8640dfdcb0a63c974936bc1025c6f9
 
   # ---- the app itself ----------------------------------------------------
   - name: avd-feed-connect
