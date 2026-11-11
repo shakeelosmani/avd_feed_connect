@@ -526,6 +526,13 @@ class AvdApp(Gtk.Application):
         cam_cb.connect("toggled",
                        lambda btn: self._set_flag("_teams_redir_camera", btn.get_active()))
         pbox.append(beta_cb); pbox.append(cam_cb)
+        teams_note = create(Gtk.Label, xalign=0, wrap=True, label=tr(
+            "Optimized calls carry audio only unless camera and video is on, "
+            "because Teams then takes its camera from here. Other apps keep "
+            "using the redirected camera as usual."))
+        teams_note.add_css_class("tile-sub")
+        teams_note.set_margin_start(4)
+        pbox.append(teams_note)
         pbox.append(Gtk.Separator())
 
         setbtn = create(Gtk.Button, label=tr("Default settings…")); setbtn.add_css_class("flat")

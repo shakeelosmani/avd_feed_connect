@@ -159,5 +159,6 @@
   "TEAMS CALLS (BETA)": "LLAMADAS DE TEAMS (BETA)",
   "Optimize Teams calls": "Optimizar las llamadas de Teams",
   "Experimental camera and video": "Cámara y vídeo experimentales",
-  "Needs a FreeRDP build with the Teams add-in": "Requiere una versión de FreeRDP con el complemento de Teams"
+  "Needs a FreeRDP build with the Teams add-in": "Requiere una versión de FreeRDP con el complemento de Teams",
+  "Optimized calls carry audio only unless camera and video is on, because Teams then takes its camera from here. Other apps keep using the redirected camera as usual.": "Las llamadas optimizadas solo llevan audio a menos que la cámara y el vídeo estén activados, porque entonces Teams toma su cámara desde aquí. Las demás aplicaciones siguen usando la cámara redirigida con normalidad."
 }
