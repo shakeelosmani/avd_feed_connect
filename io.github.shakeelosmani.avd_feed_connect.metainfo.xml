@@ -60,6 +60,15 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.10.1" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Fixed the Settings menu stretching very wide: the Teams call
+          optimization note now wraps onto multiple lines instead of forcing
+          the menu across the screen.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-11-11">
       <description>
         <ul>
