@@ -532,6 +532,11 @@ class AvdApp(Gtk.Application):
             "using the redirected camera as usual."))
         teams_note.add_css_class("tile-sub")
         teams_note.set_margin_start(4)
+        # The popover has no fixed width, so it grows to a child's natural
+        # width; without a cap this one-line note stretches it across the
+        # screen. Bound the natural width so the note wraps instead (same as
+        # the wrapping headers elsewhere).
+        teams_note.set_max_width_chars(40)
         pbox.append(teams_note)
         pbox.append(Gtk.Separator())
 
