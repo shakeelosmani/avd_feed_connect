@@ -101,6 +101,16 @@ def test_azure_arg_sovereign_authority_with_commercial_redirect(monkeypatch):
         "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
 
 
+def test_broker_redirect_is_registered_scheme_for_client(monkeypatch):
+    # The ms-appx-web broker redirect is auto-captured by the OS scheme handler
+    # on every cloud (commercial verified; Gov pending a tester). It must name
+    # the exact public client id, and be cloud-independent (same string on Gov).
+    commercial = _config_for(monkeypatch, "commercial").BROKER_REDIRECT
+    assert commercial == (
+        "ms-appx-web://Microsoft.AAD.BrokerPlugin/" + config.CLIENT_ID)
+    assert _config_for(monkeypatch, "usgov").BROKER_REDIRECT == commercial
+
+
 def test_reset_config_to_commercial(monkeypatch):
     # leave the module back on its default so later tests see commercial
     _config_for(monkeypatch, None)

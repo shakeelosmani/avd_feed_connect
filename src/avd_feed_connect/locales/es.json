@@ -171,6 +171,7 @@
   "Paste the sign-in address": "Pegue la dirección de inicio de sesión",
   "Signed in": "Sesión iniciada",
   "Signed in. You can close this tab and return to the app.": "Sesión iniciada. Puede cerrar esta pestaña y volver a la aplicación.",
+  "Signed in. You can close the browser tab that's still loading.": "Sesión iniciada. Puede cerrar la pestaña del navegador que sigue cargando.",
   "Copy sign-in link": "Copiar enlace de inicio de sesión",
   "If your browser didn't open — or your certificate is in a different browser — copy the link and open it there.": "Si el navegador no se abrió, o su certificado está en otro navegador, copie el enlace y ábralo allí.",
   "Could not open that .rdp file: {error}": "No se pudo abrir ese archivo .rdp: {error}",

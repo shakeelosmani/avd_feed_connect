@@ -373,6 +373,21 @@ Default settings…** and uncheck **Use the system browser to sign in**; sign-in
 then returns to the built-in window. `AVD_BROWSER_SIGNIN=1`/`0` forces it on or
 off for scripting.
 
+How the browser hands the result back depends on the cloud. On **commercial**
+it uses a loopback redirect (`http://localhost:…`) and the browser lands on a
+"you can close this tab" page. On a **sovereign cloud** that loopback isn't
+registered for the sign-in client (every US Gov CAC sign-in otherwise fails with
+`AADSTS50011`), so the app instead registers an OS handler for the broker
+redirect and the browser hands the result straight back — your browser will ask
+once to **"Open avd_feed_connect?"**; allow it and the app captures the sign-in
+with no copy/paste. One cosmetic quirk on that path: the browser tab is left
+**spinning with no completion page** (the final redirect is an app handoff, not
+a web page). That's expected — the app shows a "you can close the browser tab"
+notice once you're signed in. If the handoff doesn't fire (no handler
+registered), use **Paste the address instead** in the sign-in window as a
+fallback. `AVD_SCHEME_SIGNIN=1` forces this broker-redirect capture on
+commercial too (useful if a firewall blocks the loopback port).
+
 **Resizable window (dynamic resolution):** by default the session opens
 fullscreen. If you'd rather have a resizable window whose remote resolution
 follows the window as you resize it, add `/dynamic-resolution` to that
@@ -455,6 +470,7 @@ Both methods write the same setting.
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
 | `AVD_CLOUD` | Target a Microsoft sovereign cloud: `usgov` (Azure Government), `china` (21Vianet), or `commercial` (default). Switches the feed, sign-in, and token endpoints for the whole app as one set. |
 | `AVD_BROWSER_SIGNIN` | Force system-browser sign-in on (`1`/`on`) or off (`0`/`off`), overriding the **Use the system browser to sign in** toggle. Needed for smart card / certificate (CBA) tenants. |
+| `AVD_SCHEME_SIGNIN` | `1`/`on` makes browser sign-in capture the result via the broker-redirect OS handler instead of a loopback port. Automatic on sovereign clouds; this forces it on commercial too (useful if a firewall blocks the loopback). |
 
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.
