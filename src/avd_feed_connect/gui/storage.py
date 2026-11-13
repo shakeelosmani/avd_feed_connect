@@ -35,6 +35,13 @@ CERT_LABELS = ["Automatic (verify)", "Verify", "Don't verify (if you can't conne
 CERT_VALUES = ["auto", "verify", "ignore"]
 SEC_LABELS = ["Automatic (use feed or remembered mode)", "Microsoft Entra ID", "NLA (username and password)"]
 SEC_VALUES = ["auto", "aad", "nla"]
+# How a RemoteApp (published single app) tile opens. "auto" leaves the feed's
+# RemoteApp behaviour (the app in its own RAIL window); "desktop" opens the
+# host's full desktop instead so the app can be launched from inside it — the
+# fallback for clients whose RAIL rendering doesn't work. Shown only on RemoteApp
+# resources (see _open_settings); desktops are unaffected.
+REMOTEAPP_LABELS = ["Automatic (app window)", "Full desktop"]
+REMOTEAPP_VALUES = ["auto", "desktop"]
 # sdl-freerdp's own Right Shift + key shortcuts (D disconnects the session, Enter
 # toggles fullscreen). "auto" leaves FreeRDP's config untouched; "off" passes every
 # key through to the remote desktop.

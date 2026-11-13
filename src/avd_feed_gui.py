@@ -85,6 +85,8 @@ from avd_feed_connect.rdp.attempt import ConnectionAttempt  # noqa: E402
 from avd_feed_connect.rdp.launcher import (  # noqa: E402
     apply_client_hotkeys, build_display_args, session_log_path,
     HOTKEY_MODIFIER_NAMES, HOTKEY_DEFAULTS, HOTKEY_ACTIONS, HOTKEY_KEYS)
+from avd_feed_connect.rdp.resources import (  # noqa: E402
+    rdp_is_remoteapp, set_rdp_desktop_mode)
 from avd_feed_connect.i18n import _ as tr, ngettext, configure, LANGUAGES  # noqa: E402
 from avd_feed_connect.gui.localization import bind, create, strings  # noqa: E402
 from avd_feed_connect.gui.theme import CSS_BASE, PALETTE_DARK, PALETTE_LIGHT  # noqa: E402
@@ -98,7 +100,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.8.0-dev (Gov browser sign-in + open .rdp test)"
+APP_VERSION = "0.11.0"
 # LOCAL_PROFILE_ID (the synthetic account for user-opened .rdp files, issue #17)
 # is imported from avd_feed_connect.accounts, its single source of truth.
 
@@ -535,6 +537,47 @@ class AvdApp(Gtk.Application):
             cb.connect("toggled", lambda btn, k=key: self._set_tray_option(k, btn.get_active()))
             pbox.append(cb)
             self._tray_toggles.append(cb)
+        pbox.append(Gtk.Separator())
+
+        # Teams call optimization (beta): runs Teams call media on the local
+        # machine via the freerdp-teams-redir add-in. Inert on the stock client
+        # (the add-in is not bundled), so the row is insensitive without it.
+        teamsh = create(Gtk.Label, label=tr("TEAMS CALLS (BETA)"), xalign=0)
+        teamsh.add_css_class("menu-head")
+        teamsh.set_margin_start(4); teamsh.set_margin_top(2)
+        pbox.append(teamsh)
+        teams_ok = self._teams_plugin_available()
+        beta_cb = create(Gtk.CheckButton, label=tr("Optimize Teams calls"))
+        beta_cb.set_active(bool(self._settings.get("_teams_redir")))
+        beta_cb.set_sensitive(teams_ok)
+        cam_cb = create(Gtk.CheckButton, label=tr("Experimental camera and video"))
+        cam_cb.set_active(bool(self._settings.get("_teams_redir_camera")))
+        cam_cb.set_margin_start(18)
+        cam_cb.set_sensitive(teams_ok and bool(self._settings.get("_teams_redir")))
+        if not teams_ok:
+            for cb in (beta_cb, cam_cb):
+                bind(cb, 'tooltip_text',
+                     tr("Needs a FreeRDP build with the Teams add-in"))
+
+        def _on_teams_beta(btn):
+            self._set_flag("_teams_redir", btn.get_active())
+            cam_cb.set_sensitive(teams_ok and btn.get_active())
+        beta_cb.connect("toggled", _on_teams_beta)
+        cam_cb.connect("toggled",
+                       lambda btn: self._set_flag("_teams_redir_camera", btn.get_active()))
+        pbox.append(beta_cb); pbox.append(cam_cb)
+        teams_note = create(Gtk.Label, xalign=0, wrap=True, label=tr(
+            "Optimized calls carry audio only unless camera and video is on, "
+            "because Teams then takes its camera from here. Other apps keep "
+            "using the redirected camera as usual."))
+        teams_note.add_css_class("tile-sub")
+        teams_note.set_margin_start(4)
+        # The popover has no fixed width, so it grows to a child's natural
+        # width; without a cap this one-line note stretches it across the
+        # screen. Bound the natural width so the note wraps instead (same as
+        # the wrapping headers elsewhere).
+        teams_note.set_max_width_chars(40)
+        pbox.append(teams_note)
         pbox.append(Gtk.Separator())
 
         setbtn = create(Gtk.Button, label=tr("Default settings…")); setbtn.add_css_class("flat")
@@ -1949,6 +1992,25 @@ class AvdApp(Gtk.Application):
         if config.SDL_LIBS and os.path.isdir(config.SDL_LIBS):
             env["LD_LIBRARY_PATH"] = config.SDL_LIBS + (
                 os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+        # Teams call optimization (beta): load the freerdp-teams-redir add-in so
+        # Teams call media runs on the LOCAL mic/speakers (and, experimentally,
+        # camera) via libwebrtc instead of the session host. Opt-in, and only
+        # when a FreeRDP carrying the add-in is in use (the bundled client has
+        # none, so this is inert there). The /dvc flag is appended to argv below.
+        teams_redir = bool(self._settings.get("_teams_redir")) \
+            and self._teams_plugin_available()
+        if teams_redir:
+            # Never write transcripts: they hold TURN creds / ICE passwords.
+            env["TEAMS_REDIR_TRANSCRIPTS"] = "off"
+            if self._settings.get("_teams_redir_camera"):
+                # Experimental video: hold a closed video window a little longer
+                # to smooth Teams' frequent open/close churn. VAAPI stays off
+                # (the Intel HW encoder crashes the client).
+                env.setdefault("TEAMS_REDIR_VIDEO_KEEP_MS", "8000")
+            else:
+                # Audio-optimized only (stable): no camera encode, no separate
+                # video windows, no renegotiation churn, far lower power draw.
+                env["TEAMS_REDIR_VIDEO"] = "off"
         safe = _re.sub(r"[^A-Za-z0-9]+", "_", res["title"])[:40]
         logpath = session_log_path(
             session.client.output_dir,
@@ -1961,6 +2023,16 @@ class AvdApp(Gtk.Application):
             argv.append(f"/azure:{config.azure_arg()}")
         if session.client.upn:
             argv.append(f"/u:{session.client.upn}")
+        # RemoteApp (RAIL) tiles: the bundled SDL client can't render RAIL windows,
+        # so a RemoteApp can optionally be opened as the host's full DESKTOP instead
+        # (per-resource "Open as full desktop" setting, or AVD_REMOTEAPP=desktop).
+        # Keep RemoteApplicationProgram/loadBalanceInfo — AVD's ARM resolver needs
+        # them — and only flip remoteapplicationmode off, then connect as a normal
+        # desktop below. Off by default: RemoteApp tiles otherwise behave as before.
+        force_desktop = os.environ.get("AVD_REMOTEAPP", "").strip().lower() == "desktop" \
+            or self._eff("remoteapp", res, session) == "desktop"
+        if force_desktop and rdp_is_remoteapp(path):
+            set_rdp_desktop_mode(path)
         # Remote scale follows the client's display scale (HiDPI → 200%, standard/
         # ultrawide → 100%); AVD_SCALE overrides. Multi-monitor and any other flag
         # are opt-in via AVD_EXTRA_ARGS (e.g. "/multimon /gfx"), until a settings UI.
@@ -1993,6 +2065,8 @@ class AvdApp(Gtk.Application):
                  # inject fake input so the Azure gateway doesn't idle-drop the
                  # session (which would otherwise force a reconnect + token re-mint)
                  "/prevent-session-lock:120"]
+        if teams_redir:
+            argv.append("/dvc:teams-redir")
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
         if mm in ("1", "on", "true", "yes"):
             want_multimon = True
@@ -2517,6 +2591,26 @@ class AvdApp(Gtk.Application):
             self._settings.pop(key, None)
         storage.save_settings(self._settings)
 
+    def _set_flag(self, key, on):
+        """Persist an app-wide boolean setting (present=on, absent=off)."""
+        if on:
+            self._settings[key] = True
+        else:
+            self._settings.pop(key, None)
+        storage.save_settings(self._settings)
+
+    def _teams_plugin_available(self):
+        """True when the FreeRDP in use carries the freerdp-teams-redir add-in
+        (libteams-redir-client.so in its lib/freerdp3). The add-in is not
+        bundled: it exists only when AVD_SDL_FREERDP points at a build that has
+        it, so the Teams-optimization setting stays inert on the stock client."""
+        try:
+            prefix = os.path.dirname(os.path.dirname(config.SDL))
+            return os.path.isfile(os.path.join(
+                prefix, "lib", "freerdp3", "libteams-redir-client.so"))
+        except OSError:
+            return False
+
     def _on_close_request(self, win):
         # Opted in and a tray can bring it back: closing only hides the window
         # (sessions and the token refresh keep running). Otherwise close quits.
@@ -2690,6 +2784,24 @@ class AvdApp(Gtk.Application):
         auth_note.add_css_class("tile-sub")
         box.append(auth_note)
 
+        # RemoteApp (published single app) tiles can optionally open as the host's
+        # full desktop — the fallback for when the app's own window doesn't appear
+        # (the bundled client's RAIL rendering is limited). Only meaningful for a
+        # RemoteApp resource, so the control is shown only there; desktops never
+        # see it. It is a per-resource choice, off by default.
+        remoteapp_dd = None
+        if res is not None and res.get("type") == "RemoteApp":
+            remoteapp_dd = create(Gtk.DropDown,
+                model=strings([tr(label) for label in storage.REMOTEAPP_LABELS]))
+            rav = cur.get("remoteapp", "auto")
+            remoteapp_dd.set_selected(storage.REMOTEAPP_VALUES.index(rav)
+                                      if rav in storage.REMOTEAPP_VALUES else 0)
+            box.append(self._form_row(tr("Open RemoteApp as"), remoteapp_dd))
+            remoteapp_note = create(Gtk.Label, xalign=0, wrap=True,
+                label=tr("Full desktop opens the whole remote PC so you can launch the app yourself — use this if the app window never appears."))
+            remoteapp_note.add_css_class("tile-sub")
+            box.append(remoteapp_note)
+
         hk_dd = create(Gtk.DropDown, model=strings([tr(label) for label in storage.HOTKEY_LABELS]))
         hv = cur.get("hotkeys", "auto")
         custom_hotkeys = hv if isinstance(hv, dict) else {}
@@ -2861,11 +2973,14 @@ class AvdApp(Gtk.Application):
                     entry["user_agent"] = ua_entry.get_text().strip() or "auto"
                 else:
                     entry["user_agent"] = storage.UA_PRESETS[ua_sel]
+            if remoteapp_dd is not None:   # RemoteApp resources only
+                entry["remoteapp"] = storage.REMOTEAPP_VALUES[remoteapp_dd.get_selected()]
             # drop an all-default entry so the file stays tidy
             if entry["scale"] == "auto" and entry["multimon"] == "auto" \
                     and entry["cert"] == "auto" and entry["sec"] == "auto" and entry["hotkeys"] == "auto" \
                     and entry["new_workspace"] == ("auto" if res else "off") \
                     and entry.get("user_agent", "auto") == "auto" \
+                    and entry.get("remoteapp", "auto") == "auto" \
                     and not entry["extra_args"]:
                 settings.pop(key, None)
             else:

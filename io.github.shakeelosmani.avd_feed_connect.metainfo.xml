@@ -60,6 +60,71 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.0" date="2026-11-12">
+      <description>
+        <ul>
+          <li>Browser-based sign-in for smart card and certificate (CBA)
+          accounts: a new option signs you in through your real browser, which
+          can talk to your smart card reader, instead of the built-in sign-in
+          window. The browser is also used for the connection-time sign-in
+          prompt, so CAC/PIV sign-in now works end to end.</li>
+          <li>Support for Microsoft sovereign clouds (US Gov and China) via the
+          AVD_CLOUD setting.</li>
+          <li>Open a downloaded .rdp file directly, for organizations whose feed
+          sign-in is blocked on Linux by Conditional Access.</li>
+          <li>Smart card (PIV/CAC) redirection into the session, for hosts that
+          require an in-session certificate.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.10.1" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Fixed the Settings menu stretching very wide: the Teams call
+          optimization note now wraps onto multiple lines instead of forcing
+          the menu across the screen.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.10.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Teams call optimization (beta): a new Settings option runs Teams
+          call audio on your local microphone and speakers through a bundled
+          add-in instead of the session host — useful where the host cannot
+          reach Teams' media relays. Off by default. A separate, experimental
+          camera and video option adds your local webcam to calls (while
+          optimization is on, Teams takes its camera from the add-in). Built on
+          the unofficial freerdp-teams-redir add-in.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.9.0" date="2026-11-01">
+      <description>
+        <ul>
+          <li>In-session WebAuthn/FIDO2 redirection: a hardware security key
+          (such as a YubiKey) plugged into your local machine can now be used
+          to authenticate inside the remote session — for example to sign in to
+          websites from within the AVD desktop. The bundled FreeRDP now builds
+          the RDPEWA channel with libfido2 for this. Contributed by
+          @diecknet.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.8.0" date="2026-10-27">
+      <description>
+        <ul>
+          <li>RemoteApp tiles that only showed "Loading" and then hung can now
+          be opened as the host's full desktop: right-click the tile →
+          Settings → Open RemoteApp as → Full desktop, then launch the app from
+          inside the desktop. It is off by default, shown only on RemoteApp
+          tiles, and remembered per resource.</li>
+          <li>This works only when the host pool actually grants a full desktop
+          session for that account; otherwise the app window integration of the
+          bundled client remains limited.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-10-22">
       <description>
         <ul>
