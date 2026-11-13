@@ -67,6 +67,15 @@ LOGIN = f"https://{_C['authority']}/{TENANT}/oauth2/v2.0"
 # azure_arg(), which hardcodes the same .com redirect for the connection-time
 # token, and matches the single callback the MS RDP app actually registers.
 REDIRECT = f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient"
+# The ms-appx-web broker redirect registered for the same public client. Unlike
+# the loopback (http://localhost) and nativeclient redirects, this one is
+# registered on ALL clouds including sovereign, so it is the one redirect that
+# both lets Entra return a code AND can be auto-captured on Gov without the
+# copy/paste of the final URL: the app registers an OS x-scheme-handler for
+# ms-appx-web and the browser hands the ?code=… URL straight back. Verified on
+# commercial (returns a code; Gov pending a tester). NOTE: the OS lowercases the
+# host to "microsoft.aad.brokerplugin", so any comparison must be case-insensitive.
+BROKER_REDIRECT = f"ms-appx-web://Microsoft.AAD.BrokerPlugin/{CLIENT_ID}"
 # The feed service rejects unknown clients ("INCOMPATIBLE_CLIENT_VERSION /
 # Client did not send any User Agent approved header"); this is exactly the
 # X-MS-User-Agent the web client sends (clientType/clientVersion sdkType/sdk).

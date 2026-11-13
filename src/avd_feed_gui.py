@@ -143,7 +143,11 @@ class AvdApp(Gtk.Application):
             super().__init__(application_id=APP_ID,
                              flags=Gio.ApplicationFlags.NON_UNIQUE)
         else:
-            super().__init__(application_id=APP_ID)
+            # HANDLES_OPEN so the OS can hand this running instance the
+            # ms-appx-web://…?code=… sign-in redirect (see do_open); GApplication
+            # routes that second invocation to the primary instance over D-Bus.
+            super().__init__(application_id=APP_ID,
+                             flags=Gio.ApplicationFlags.HANDLES_OPEN)
         self.registry = ProfileRegistry()
         if not os.environ.get("AVD_DEMO"):
             self.registry.migrate_legacy(TokenStore())
@@ -173,6 +177,7 @@ class AvdApp(Gtk.Application):
         self.view_mode = "all" if self._settings.get("_account_view") == "all" else "account"
         configure(self._settings.get("_language", "system"))
         self._signin_dlg = None      # the open sign-in window, if any
+        self._pending_scheme = None  # (state, cb) awaiting an ms-appx-web redirect
         self._connecting = set()      # (account id, resource id) currently connecting
         self._tray = None             # TrayIcon, unless AVD_TRAY=0 or no session bus
         self._sessions = {}           # (account id, resource id) → connection state
@@ -189,6 +194,43 @@ class AvdApp(Gtk.Application):
             self._changing_language = False
 
     # ---- app lifecycle ----------------------------------------------------
+    def do_open(self, files, n_files, hint):
+        """Handle a launch that carries a URI. The only URIs we register for are
+        the ms-appx-web:// sign-in redirect (x-scheme-handler/ms-appx-web): the
+        browser is handed the final ?code=… URL by Entra, the OS routes it to
+        this already-running instance, and we deliver it to the waiting browser
+        sign-in. Anything else just surfaces the app."""
+        delivered = False
+        for f in files:
+            try:
+                uri = f.get_uri()
+            except Exception:
+                uri = None
+            if uri and uri.split(":", 1)[0].lower() == "ms-appx-web":
+                delivered = self._deliver_scheme_code(uri) or delivered
+        if not delivered:
+            self.do_activate()
+
+    def _deliver_scheme_code(self, uri):
+        """Route a caught ms-appx-web://…?code=… back to the pending browser
+        sign-in. Returns True if a waiting sign-in accepted it. The state must
+        match the one we sent, so a stray or foreign redirect is ignored."""
+        pending = self._pending_scheme
+        if not pending:
+            return False
+        want_state, cb = pending
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(uri).query)
+        except Exception:
+            return False
+        if "code" not in qs and "error" not in qs:
+            return False
+        if qs.get("state", [None])[0] != want_state:
+            return False
+        self._pending_scheme = None
+        GLib.idle_add(cb, qs)
+        return True
+
     def do_activate(self):
         if self.win:
             self.win.present()
@@ -1239,6 +1281,7 @@ class AvdApp(Gtk.Application):
 
         def begin_paste(*_):
             shutdown_server()
+            self._pending_scheme = None
             redirect_used[0] = config.REDIRECT
             copy_btn.set_label(tr("Copy sign-in link"))   # link changed; allow re-copy
             spinner.stop()
@@ -1255,6 +1298,17 @@ class AvdApp(Gtk.Application):
                 return
             redirect_used[0] = "http://localhost:%d/" % srv.server_address[1]
             launch(authorize_url(redirect_used[0]))
+
+        def begin_scheme():
+            # Auto-capture without a local web server: authorize with the
+            # ms-appx-web broker redirect (registered on all clouds, including
+            # sovereign where loopback is not), and let the OS x-scheme-handler
+            # hand the ?code=… URL back to this running app (do_open). The paste
+            # link stays as a manual fallback if the handler is not registered.
+            shutdown_server()
+            redirect_used[0] = config.BROKER_REDIRECT
+            self._pending_scheme = (state, on_code_main)
+            launch(authorize_url(config.BROKER_REDIRECT))
 
         open_btn.connect("clicked", lambda *_: launch(authorize_url(
             redirect_used[0] or config.REDIRECT)))
@@ -1286,6 +1340,8 @@ class AvdApp(Gtk.Application):
         def on_closed(*_):
             if self._signin_dlg is dlg:
                 self._signin_dlg = None
+            if self._pending_scheme and self._pending_scheme[0] == state:
+                self._pending_scheme = None
             shutdown_server()
             if not done[0]:
                 session.pending_launch = None
@@ -1297,13 +1353,16 @@ class AvdApp(Gtk.Application):
         # redirect is registered for the public MS Remote Desktop client. On
         # sovereign clouds it is NOT — every Gov tester hits AADSTS50011
         # "redirect URI 'http://localhost:…' does not match" after a successful
-        # CAC sign-in. Go straight to the nativeclient paste there (that .com
-        # redirect IS registered — see config.REDIRECT). Commercial keeps the
-        # nicer no-paste loopback flow.
-        if config.CLOUD == "commercial":
+        # CAC sign-in. There the ms-appx-web broker redirect IS registered and is
+        # auto-captured by the OS scheme handler (begin_scheme), so Gov gets the
+        # same no-paste flow; the paste link stays as a fallback. Commercial keeps
+        # the loopback flow, which needs no external-protocol prompt.
+        force_scheme = os.environ.get("AVD_SCHEME_SIGNIN", "").strip().lower() \
+            in ("1", "true", "yes", "on")
+        if config.CLOUD == "commercial" and not force_scheme:
             begin_loopback()
         else:
-            begin_paste()
+            begin_scheme()
         dlg.present()
 
     def _browser_complete(self, session, dlg, verifier, redirect_uri, qs,
@@ -1319,6 +1378,7 @@ class AvdApp(Gtk.Application):
         else:
             message = None
         done[0] = True
+        self._pending_scheme = None
         shutdown_server()
         if self._signin_dlg is dlg:
             self._signin_dlg = None
@@ -3019,4 +3079,7 @@ class AvdApp(Gtk.Application):
 
 if __name__ == "__main__":
     app = AvdApp()
-    sys.exit(app.run(None))
+    # Pass argv so a launch carrying the ms-appx-web://…?code=… sign-in redirect
+    # reaches GApplication (HANDLES_OPEN → do_open); a no-URI launch still just
+    # activates. The wrapper forwards "$@", so sys.argv holds the URI here.
+    sys.exit(app.run(sys.argv))
