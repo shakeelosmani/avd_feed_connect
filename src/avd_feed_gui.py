@@ -178,6 +178,9 @@ class AvdApp(Gtk.Application):
         configure(self._settings.get("_language", "system"))
         self._signin_dlg = None      # the open sign-in window, if any
         self._pending_scheme = None  # (state, cb) awaiting an ms-appx-web redirect
+        self._toast_box = None        # transient bottom-centre notice (see _toast)
+        self._toast_label = None
+        self._toast_source = 0        # timeout that auto-hides the toast
         self._connecting = set()      # (account id, resource id) currently connecting
         self._tray = None             # TrayIcon, unless AVD_TRAY=0 or no session bus
         self._sessions = {}           # (account id, resource id) → connection state
@@ -228,6 +231,15 @@ class AvdApp(Gtk.Application):
         if qs.get("state", [None])[0] != want_state:
             return False
         self._pending_scheme = None
+        # The OS routed this redirect to us while the browser was in front, and
+        # the browser tab is now stuck spinning (a custom scheme has no landing
+        # page). Pull our window back to the front and, once the feed is up,
+        # float a notice so the dead tab reads as "done" rather than "broken".
+        if self.win:
+            self.win.present()
+        if "code" in qs:
+            self._toast(tr("Signed in. You can close the browser tab that's "
+                           "still loading."))
         GLib.idle_add(cb, qs)
         return True
 
@@ -773,6 +785,25 @@ class AvdApp(Gtk.Application):
         cbox.set_can_target(True)
         self._connect_overlay = cbox
         overlay.add_overlay(cbox)
+
+        # Transient toast (bottom-centre): a self-dismissing notice that floats
+        # over the feed. Used to tell a browser-scheme sign-in that it landed —
+        # the ms-appx-web redirect leaves the browser tab spinning with no
+        # completion page (the final hop is a custom scheme, not an HTTP URL), so
+        # the app has to be the one that says "you're in, close the tab."
+        toast = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toast.add_css_class("toast")
+        toast.set_halign(Gtk.Align.CENTER); toast.set_valign(Gtk.Align.END)
+        toast.set_margin_bottom(18)
+        self._toast_label = create(Gtk.Label, label="", xalign=0, wrap=True)
+        self._toast_label.add_css_class("toast-label")
+        toast_close = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        toast_close.add_css_class("flat")
+        toast_close.connect("clicked", lambda *_: self._hide_toast())
+        toast.append(self._toast_label); toast.append(toast_close)
+        toast.set_visible(False)
+        self._toast_box = toast
+        overlay.add_overlay(toast)
         wp.append(overlay)
 
         # footer: live dot · status · version
@@ -837,6 +868,25 @@ class AvdApp(Gtk.Application):
                 bind(self.status, 'text', text)
             return False
         GLib.idle_add(apply)
+
+    def _toast(self, text, timeout=10):
+        """Show a self-dismissing notice over the feed. Safe from any thread."""
+        def apply():
+            if not self._toast_box:
+                return False
+            bind(self._toast_label, 'text', text)
+            self._toast_box.set_visible(True)
+            if self._toast_source:
+                GLib.source_remove(self._toast_source)
+            self._toast_source = GLib.timeout_add_seconds(timeout, self._hide_toast)
+            return False
+        GLib.idle_add(apply)
+
+    def _hide_toast(self):
+        self._toast_source = 0
+        if self._toast_box:
+            self._toast_box.set_visible(False)
+        return False
 
     def _update_account(self, who, session=None):
         """Fill the header account chip: email + a 2-letter avatar."""
