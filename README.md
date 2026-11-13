@@ -338,6 +338,41 @@ per-connection sign-in is allowed, which is exactly what the manual
 (see below) so the connection targets the Gov Entra endpoints. If your tenant
 *doesn't* block the feed, just sign in normally; you don't need this.
 
+**Sovereign clouds (US Gov, China).** By default the app targets the
+**commercial** Azure cloud. On a Microsoft **sovereign** cloud, set `AVD_CLOUD`
+so the workspace feed, the sign-in authority, and the connection-time token all
+target that cloud's endpoints as one matched set:
+
+- `AVD_CLOUD=usgov` — Azure Government (US Gov; GCC High and DoD share these
+  endpoints: feed `rdweb.wvd.azure.us`, Entra `login.microsoftonline.us`)
+- `AVD_CLOUD=china` — Azure China, operated by 21Vianet (feed
+  `rdweb.wvd.azure.cn`, Entra `login.partner.microsoftonline.cn`)
+- `AVD_CLOUD=commercial` — the default; no need to set it
+
+Set it like the other variables: `flatpak override --user
+--env=AVD_CLOUD=usgov io.github.shakeelosmani.avd_feed_connect`, or export it
+before launching. It is one choice for the whole app. (The public Remote Desktop
+client's sign-in redirect stays on its registered commercial host even on a
+sovereign cloud — that is expected, and is the combination that actually
+connects a Gov AVD from Linux.)
+
+**Signing in with a smart card / CAC / PIV (certificate-based auth).** The
+built-in sign-in window is Linux WebKit, which has no PKCS#11 bridge and so
+**cannot present a client certificate** — a tenant that enforces
+certificate-based auth (CBA) fails before the card is ever read. Sign in through
+your **real browser** instead, which already talks to the reader: on the sign-in
+screen click **Sign in with a browser instead** (under the main button). The app
+opens your system browser, you authenticate with the card there, and it captures
+the result on a local redirect; this also covers the connection-time sign-in, so
+a CAC/PIV sign-in works end to end.
+
+The choice is **sticky and account-wide** — once on, every sign-in and re-auth
+uses the browser, because a tenant that needs a card needs it every time. To turn
+it back off (say, on a commercial account that doesn't need it), **⋯ menu →
+Default settings…** and uncheck **Use the system browser to sign in**; sign-in
+then returns to the built-in window. `AVD_BROWSER_SIGNIN=1`/`0` forces it on or
+off for scripting.
+
 **Resizable window (dynamic resolution):** by default the session opens
 fullscreen. If you'd rather have a resizable window whose remote resolution
 follows the window as you resize it, add `/dynamic-resolution` to that
@@ -418,6 +453,8 @@ Both methods write the same setting.
 | `AVD_EXTRA_ARGS` | Extra `sdl-freerdp` flags appended verbatim, e.g. `"/gfx"`, `"/network:auto"`, or your own `/multimon` / `-multimon` (which then wins over the auto choice). |
 | `AVD_SDL_FREERDP` | Path to the `sdl-freerdp` binary (defaults to the bundled one). |
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
+| `AVD_CLOUD` | Target a Microsoft sovereign cloud: `usgov` (Azure Government), `china` (21Vianet), or `commercial` (default). Switches the feed, sign-in, and token endpoints for the whole app as one set. |
+| `AVD_BROWSER_SIGNIN` | Force system-browser sign-in on (`1`/`on`) or off (`0`/`off`), overriding the **Use the system browser to sign in** toggle. Needed for smart card / certificate (CBA) tenants. |
 
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.
