@@ -60,6 +60,23 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.0" date="2026-11-12">
+      <description>
+        <ul>
+          <li>Browser-based sign-in for smart card and certificate (CBA)
+          accounts: a new option signs you in through your real browser, which
+          can talk to your smart card reader, instead of the built-in sign-in
+          window. The browser is also used for the connection-time sign-in
+          prompt, so CAC/PIV sign-in now works end to end.</li>
+          <li>Support for Microsoft sovereign clouds (US Gov and China) via the
+          AVD_CLOUD setting.</li>
+          <li>Open a downloaded .rdp file directly, for organizations whose feed
+          sign-in is blocked on Linux by Conditional Access.</li>
+          <li>Smart card (PIV/CAC) redirection into the session, for hosts that
+          require an in-session certificate.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.10.1" date="2026-11-11">
       <description>
         <ul>
