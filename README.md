@@ -470,7 +470,7 @@ Both methods write the same setting.
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
 | `AVD_CLOUD` | Target a Microsoft sovereign cloud: `usgov` (Azure Government), `china` (21Vianet), or `commercial` (default). Switches the feed, sign-in, and token endpoints for the whole app as one set. |
 | `AVD_BROWSER_SIGNIN` | Force system-browser sign-in on (`1`/`on`) or off (`0`/`off`), overriding the **Use the system browser to sign in** toggle. Needed for smart card / certificate (CBA) tenants. |
-| `AVD_SCHEME_SIGNIN` | `1`/`on` makes browser sign-in capture the result via the broker-redirect OS handler instead of a loopback port. Automatic on sovereign clouds; this forces it on commercial too (useful if a firewall blocks the loopback). |
+| `AVD_SCHEME_SIGNIN` | `1`/`on` captures browser sign-in via the broker-redirect OS handler instead of a loopback port (automatic on sovereign clouds for the *feed* sign-in; this forces it on commercial too). It also turns on no-paste capture for the *connection-time* prompt — the app hands FreeRDP the token it already holds (skipping the gateway prompt) and auto-catches the session-host redirect — which is otherwise copy/paste on sovereign clouds. |
 
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.
