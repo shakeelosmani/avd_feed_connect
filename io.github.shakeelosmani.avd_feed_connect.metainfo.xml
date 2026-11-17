@@ -60,6 +60,19 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.13.0" date="2026-11-17">
+      <description>
+        <ul>
+          <li>Multi-monitor now works no matter which screen you've set as your
+          main display. Before, connecting across several monitors could hang on
+          the Windows welcome screen (it only worked when your main display was
+          your top-left one); now it connects every time.</li>
+          <li>Each monitor shows its own content again: on mixed setups a monitor
+          could end up displaying the wrong screen's picture (sometimes with a
+          black band); windows now land on the correct monitor.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-11-17">
       <description>
         <ul>

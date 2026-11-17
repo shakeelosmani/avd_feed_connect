@@ -1,0 +1,47 @@
+diff --git a/libfreerdp/common/settings.c b/libfreerdp/common/settings.c
+index 46db56f..60bf6be 100644
+--- a/libfreerdp/common/settings.c
++++ b/libfreerdp/common/settings.c
+@@ -2493,6 +2493,34 @@ BOOL freerdp_settings_set_monitor_def_array_sorted(rdpSettings* settings,
+ 		return FALSE;
+ 	}
+ 
++	/* RDP anchors the primary monitor at (0,0), so any monitor to the left of or
++	 * above it is given a negative origin. That is spec-valid, but some servers
++	 * (notably AVD / Windows session hosts) stall at session init on such a
++	 * layout: the remote desktop paints the logon screen and then never finishes
++	 * loading. Anchor the layout at the top-left monitor instead, so every
++	 * coordinate stays >= 0 and that monitor becomes the RDP primary. When the OS
++	 * primary already is the top-left monitor this is a no-op; a staggered layout
++	 * with no monitor exactly at the bounding-box corner keeps the OS primary. */
++	{
++		INT32 minX = primary->x;
++		INT32 minY = primary->y;
++		for (size_t x = 0; x < count; x++)
++		{
++			if (monitors[x].x < minX)
++				minX = monitors[x].x;
++			if (monitors[x].y < minY)
++				minY = monitors[x].y;
++		}
++		for (size_t x = 0; x < count; x++)
++		{
++			if ((monitors[x].x == minX) && (monitors[x].y == minY))
++			{
++				primary = &monitors[x];
++				break;
++			}
++		}
++	}
++
+ 	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorDefArray, nullptr, count))
+ 		return FALSE;
+ 	rdpMonitor* sorted = freerdp_settings_get_pointer_writable(settings, FreeRDP_MonitorDefArray);
+@@ -2524,6 +2552,7 @@ BOOL freerdp_settings_set_monitor_def_array_sorted(rdpSettings* settings,
+ 		rdpMonitor m = monitors[x];
+ 		m.x -= offsetX;
+ 		m.y -= offsetY;
++		m.is_primary = FALSE; /* only the anchor monitor (sorted[0]) is primary */
+ 		sorted[sortpos++] = m;
+ 	}
+ 

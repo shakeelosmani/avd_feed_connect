@@ -196,5 +196,6 @@
   "Optimize Teams calls": "Optimizar las llamadas de Teams",
   "Experimental camera and video": "Cámara y vídeo experimentales",
   "Needs a FreeRDP build with the Teams add-in": "Requiere una versión de FreeRDP con el complemento de Teams",
-  "Optimized calls carry audio only unless camera and video is on, because Teams then takes its camera from here. Other apps keep using the redirected camera as usual.": "Las llamadas optimizadas solo llevan audio a menos que la cámara y el vídeo estén activados, porque entonces Teams toma su cámara desde aquí. Las demás aplicaciones siguen usando la cámara redirigida con normalidad."
+  "Optimized calls carry audio only unless camera and video is on, because Teams then takes its camera from here. Other apps keep using the redirected camera as usual.": "Las llamadas optimizadas solo llevan audio a menos que la cámara y el vídeo estén activados, porque entonces Teams toma su cámara desde aquí. Las demás aplicaciones siguen usando la cámara redirigida con normalidad.",
+  "Connected on your primary display only. Multi-monitor needs one of your displays at the top-left corner of the layout; line up your displays' top edges in your system's Display settings to use all monitors.": "Conectado solo en tu pantalla principal. El modo multimonitor necesita una de tus pantallas en la esquina superior izquierda del conjunto; alinea los bordes superiores de tus pantallas en la configuración de pantalla de tu sistema para usar todos los monitores."
 }

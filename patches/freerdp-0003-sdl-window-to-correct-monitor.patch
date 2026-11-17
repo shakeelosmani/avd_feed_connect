@@ -1,0 +1,20 @@
+diff --git a/client/SDL/SDL3/sdl_context.cpp b/client/SDL/SDL3/sdl_context.cpp
+index c3fe1fb..7651542 100644
+--- a/client/SDL/SDL3/sdl_context.cpp
++++ b/client/SDL/SDL3/sdl_context.cpp
+@@ -422,7 +422,14 @@ bool SdlContext::createWindows()
+ 		if (!freerdp_settings_get_bool(settings, FreeRDP_Decorations))
+ 			flags |= SDL_WINDOW_BORDERLESS;
+ 
+-		auto did = WINPR_ASSERTING_INT_CAST(SDL_DisplayID, id);
++		/* Place the window on the display this monitor actually belongs to, not
++		 * monitorId(x): FreeRDP_MonitorDefArray is sorted (the primary is anchored
++		 * at 0,0), so index x no longer matches the unsorted monitorId list. Using
++		 * the index put each window on the wrong monitor whenever the displays were
++		 * not enumerated in sorted order — e.g. a 1920x1080 region shown on a taller
++		 * 2560x1600 panel, leaving a black band. orig_screen is the SDL display this
++		 * monitor was read from, carried through the sort, so it is always right. */
++		auto did = static_cast<SDL_DisplayID>(monitor->orig_screen);
+ 		auto window = SdlWindow::create(did, title, flags, w, h);
+ 
+ 		if (freerdp_settings_get_bool(settings, FreeRDP_UseMultimon))
