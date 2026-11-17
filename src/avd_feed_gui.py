@@ -2246,18 +2246,18 @@ class AvdApp(Gtk.Application):
         else:
             setting = self._eff("multimon", res, session)      # "on"/"off"/None
             want_multimon = (setting == "on") if setting else (n_monitors > 1)
-        # A multi-monitor session wedges at logon when the primary display is not
-        # the top-left one: FreeRDP anchors the primary at (0,0), so a monitor left
-        # of / above it gets a negative origin that never paints (see display.py).
-        # Until the FreeRDP side handles that, connect on the primary only and say
-        # why, rather than hang. AVD_MULTIMON=1 forces the real multi-monitor path
-        # (to exercise the FreeRDP fix).
+        # The bundled FreeRDP anchors the monitor layout at the top-left monitor, so
+        # a multi-monitor session works for any primary — except a staggered layout
+        # where no monitor sits at the top-left corner, which can't be anchored
+        # without a negative origin the AVD host stalls on. In that rare case connect
+        # on the primary only and say why, rather than hang (see display.py).
+        # AVD_MULTIMON=1 forces the real multi-monitor path regardless.
         if want_multimon and not forced_multimon:
-            if display.primary_breaks_multimon(layout):
+            if display.multimon_will_wedge_now():
                 want_multimon = False
                 self._toast(tr("Connected on your primary display only. Multi-monitor "
-                               "needs your primary monitor to be your top-left screen. "
-                               "Set the top-left display as primary in your system's "
+                               "needs one of your displays at the top-left corner of the "
+                               "layout; line up your displays' top edges in your system's "
                                "Display settings to use all monitors."), timeout=14)
         try:
             argv += build_display_args(path, extra, want_multimon)

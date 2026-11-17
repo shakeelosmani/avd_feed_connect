@@ -86,27 +86,29 @@ def monitor_layout():
         x11.XCloseDisplay(dpy)
 
 
-def primary_breaks_multimon(mons):
-    """Given a layout from :func:`monitor_layout`, return the primary monitor's
-    name when it is **not** the top-left monitor (so a multi-monitor session would
-    wedge), else ``None``. ``None`` for <2 monitors, no known primary, or no
-    layout — callers treat ``None`` as "fine, proceed"."""
+def multimon_will_wedge(mons):
+    """Given a layout from :func:`monitor_layout`, return ``True`` when a
+    multi-monitor session would still wedge even after FreeRDP anchors the layout
+    at the top-left monitor — i.e. when **no** monitor sits exactly at the layout's
+    top-left corner (a staggered arrangement), so FreeRDP cannot avoid giving some
+    monitor a negative origin, which the AVD session host stalls on. ``False`` for
+    fewer than two monitors or no layout (callers then just proceed).
+
+    The common cases — a row of monitors, or any layout with a monitor at the
+    corner — are handled by the FreeRDP top-left-anchor fix and do **not** wedge,
+    so this returns ``False`` for them."""
     if not mons or len(mons) < 2:
-        return None
-    primary = next((m for m in mons if m[1]), None)
-    if not primary:
-        return None
+        return False
     min_x = min(m[2] for m in mons)
     min_y = min(m[3] for m in mons)
-    if primary[2] > min_x or primary[3] > min_y:
-        return primary[0]
-    return None
+    return not any((m[2] == min_x and m[3] == min_y) for m in mons)
 
 
-def multimon_primary_problem():
-    """The primary monitor's name if a multi-monitor connect would wedge because
-    the primary is not the top-left screen, else ``None`` (also on any failure)."""
+def multimon_will_wedge_now():
+    """``True`` if a multi-monitor connect would wedge on the current layout (the
+    staggered no-corner-monitor case FreeRDP can't anchor), else ``False`` (also on
+    any failure, so a probe error never blocks a connect)."""
     try:
-        return primary_breaks_multimon(monitor_layout())
+        return multimon_will_wedge(monitor_layout())
     except Exception:
-        return None
+        return False
