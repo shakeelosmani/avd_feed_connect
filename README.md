@@ -385,8 +385,19 @@ with no copy/paste. One cosmetic quirk on that path: the browser tab is left
 a web page). That's expected — the app shows a "you can close the browser tab"
 notice once you're signed in. If the handoff doesn't fire (no handler
 registered), use **Paste the address instead** in the sign-in window as a
-fallback. `AVD_SCHEME_SIGNIN=1` forces this broker-redirect capture on
-commercial too (useful if a firewall blocks the loopback port).
+fallback.
+
+On a sovereign cloud the **connection-time** sign-in (when you open a desktop)
+now uses that same no-paste handoff automatically: the app hands FreeRDP the
+token it already holds for the connection gateway, so that prompt is skipped
+entirely, and routes the remaining session-host sign-in through the broker
+redirect, so the browser hands the code back instead of you copying a link. You
+sign in once, for the desktop itself, with the same **"Open avd_feed_connect?"**
+prompt and spinning-tab-then-"you can close it" behaviour as the feed; the paste
+field stays as a fallback. (Confirmed end to end on a US Gov tenant with a CAC.)
+`AVD_SCHEME_SIGNIN=1` forces both the feed and the connection broker-redirect
+capture on **commercial** too (useful if a firewall blocks the loopback port, or
+to test the chain) — on sovereign clouds it's already the default.
 
 **Resizable window (dynamic resolution):** by default the session opens
 fullscreen. If you'd rather have a resizable window whose remote resolution
@@ -470,7 +481,7 @@ Both methods write the same setting.
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |
 | `AVD_CLOUD` | Target a Microsoft sovereign cloud: `usgov` (Azure Government), `china` (21Vianet), or `commercial` (default). Switches the feed, sign-in, and token endpoints for the whole app as one set. |
 | `AVD_BROWSER_SIGNIN` | Force system-browser sign-in on (`1`/`on`) or off (`0`/`off`), overriding the **Use the system browser to sign in** toggle. Needed for smart card / certificate (CBA) tenants. |
-| `AVD_SCHEME_SIGNIN` | `1`/`on` captures browser sign-in via the broker-redirect OS handler instead of a loopback port (automatic on sovereign clouds for the *feed* sign-in; this forces it on commercial too). It also turns on no-paste capture for the *connection-time* prompt — the app hands FreeRDP the token it already holds (skipping the gateway prompt) and auto-catches the session-host redirect — which is otherwise copy/paste on sovereign clouds. |
+| `AVD_SCHEME_SIGNIN` | On **sovereign clouds** both the *feed* and the *connection-time* sign-in already capture via the broker-redirect OS handler with no copy/paste; this flag is not needed there. `1`/`on` forces that same no-paste capture on **commercial** (both legs) — useful if a firewall blocks the loopback port, or to test the chain. For the connection leg the app hands FreeRDP the token it already holds (skipping the gateway prompt) and auto-catches the session-host redirect. |
 
 Connections are launched over X11/XWayland (`GDK_BACKEND=x11`) because FreeRDP's
 SDL client is unstable on native Wayland; this is automatic.

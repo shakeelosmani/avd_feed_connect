@@ -100,7 +100,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 # LOCAL_PROFILE_ID (the synthetic account for user-opened .rdp files, issue #17)
 # is imported from avd_feed_connect.accounts, its single source of truth.
 
@@ -219,13 +219,17 @@ class AvdApp(Gtk.Application):
     def _scheme_connect(self, session):
         """Whether this session's connection-time AAD should auto-capture via the
         ms-appx-web scheme handler (no paste) instead of the native-client paste.
-        Opt-in via AVD_SCHEME_SIGNIN while the Gov leg is validated; a local .rdp
-        keeps its own flow (it may carry a baked-in gateway token and has no feed
-        token to inject)."""
+        Default on for the sovereign clouds, where the broker redirect is the one
+        registered redirect (loopback/nativeclient are not) and a Gov tester has
+        confirmed the full no-paste connect. Commercial keeps the native-client
+        paste unless AVD_SCHEME_SIGNIN forces it (for testing the chain there). A
+        local .rdp keeps its own flow (it may carry a baked-in gateway token and
+        has no feed token to inject)."""
         if session.local:
             return False
-        return os.environ.get("AVD_SCHEME_SIGNIN", "").strip().lower() \
+        force = os.environ.get("AVD_SCHEME_SIGNIN", "").strip().lower() \
             in ("1", "true", "yes", "on")
+        return force or config.CLOUD != "commercial"
 
     def _deliver_scheme_conn(self, uri):
         """Route a caught ms-appx-web connection redirect to the most recent live
