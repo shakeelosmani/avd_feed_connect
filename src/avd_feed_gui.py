@@ -75,7 +75,7 @@ from gi.repository import WebKit  # noqa: E402
 
 # The feed/auth package is installed as a sibling directory next to this file.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from avd_feed_connect import config, http  # noqa: E402
+from avd_feed_connect import config, display, http  # noqa: E402
 from avd_feed_connect.auth.oauth import _b64url  # noqa: E402
 from avd_feed_connect.client import AvdClient  # noqa: E402
 from avd_feed_connect.gui.workspaces import select_backend as workspace_backend  # noqa: E402
@@ -2231,13 +2231,34 @@ class AvdApp(Gtk.Application):
         if teams_redir:
             argv.append("/dvc:teams-redir")
         mm = os.environ.get("AVD_MULTIMON", "").strip().lower()
-        if mm in ("1", "on", "true", "yes"):
+        forced_multimon = mm in ("1", "on", "true", "yes")
+        # Read the live display layout now, at connect time — not the monitor count
+        # cached when the UI started, which goes stale if displays are plugged in or
+        # rearranged while the app runs. display.monitor_layout() uses its own X
+        # connection, so it is safe from this worker thread (GDK/_detect_displays are
+        # not). Falls back to the cached count only when the layout can't be read.
+        layout = display.monitor_layout()
+        n_monitors = len(layout) if layout else self._n_monitors
+        if forced_multimon:
             want_multimon = True
         elif mm in ("0", "off", "false", "no"):
             want_multimon = False
         else:
             setting = self._eff("multimon", res, session)      # "on"/"off"/None
-            want_multimon = (setting == "on") if setting else (self._n_monitors > 1)
+            want_multimon = (setting == "on") if setting else (n_monitors > 1)
+        # A multi-monitor session wedges at logon when the primary display is not
+        # the top-left one: FreeRDP anchors the primary at (0,0), so a monitor left
+        # of / above it gets a negative origin that never paints (see display.py).
+        # Until the FreeRDP side handles that, connect on the primary only and say
+        # why, rather than hang. AVD_MULTIMON=1 forces the real multi-monitor path
+        # (to exercise the FreeRDP fix).
+        if want_multimon and not forced_multimon:
+            if display.primary_breaks_multimon(layout):
+                want_multimon = False
+                self._toast(tr("Connected on your primary display only. Multi-monitor "
+                               "needs your primary monitor to be your top-left screen. "
+                               "Set the top-left display as primary in your system's "
+                               "Display settings to use all monitors."), timeout=14)
         try:
             argv += build_display_args(path, extra, want_multimon)
         except (OSError, ValueError) as error:
