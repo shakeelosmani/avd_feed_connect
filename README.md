@@ -328,9 +328,13 @@ equivalent), the app can connect that file directly: **⋯ menu → Open a
 downloaded .rdp…** (also offered on the sign-in screen). It appears as a tile
 under a **Local .rdp files** account and connects with the normal flow — the
 connection's own sign-in opens in your **system browser** so a smart card / CAC
-or certificate can be presented (the built-in window can't), and the app waits
-for you to finish and paste the final address back, so there's no race. New
-tiles default to `/smartcard` in **Advanced flags**; edit them per tile.
+or certificate can be presented (the built-in window can't). For a downloaded
+`.rdp` you finish in the browser and **paste the final address back** into the
+app; the app waits for that paste, so there's no race. (The automatic, no-paste
+hand-back described under *smart card / CAC* below is for **feed** sign-in and
+feed-discovered connections — a local `.rdp` keeps the paste step, because it
+carries its own connection details rather than a feed token.) New tiles default
+to `/smartcard` in **Advanced flags**; edit them per tile.
 
 This works because only the *feed* token is blocked for these tenants — the
 per-connection sign-in is allowed, which is exactly what the manual
