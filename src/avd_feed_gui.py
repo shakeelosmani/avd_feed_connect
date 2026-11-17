@@ -100,7 +100,7 @@ from avd_feed_connect.auth.tokens import TokenStore  # noqa: E402
 from avd_feed_connect.gui.session import AccountSession  # noqa: E402
 
 APP_NAME = "AVD Feed + Connect Linux"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 # LOCAL_PROFILE_ID (the synthetic account for user-opened .rdp files, issue #17)
 # is imported from avd_feed_connect.accounts, its single source of truth.
 
@@ -143,7 +143,11 @@ class AvdApp(Gtk.Application):
             super().__init__(application_id=APP_ID,
                              flags=Gio.ApplicationFlags.NON_UNIQUE)
         else:
-            super().__init__(application_id=APP_ID)
+            # HANDLES_OPEN so the OS can hand this running instance the
+            # ms-appx-web://…?code=… sign-in redirect (see do_open); GApplication
+            # routes that second invocation to the primary instance over D-Bus.
+            super().__init__(application_id=APP_ID,
+                             flags=Gio.ApplicationFlags.HANDLES_OPEN)
         self.registry = ProfileRegistry()
         if not os.environ.get("AVD_DEMO"):
             self.registry.migrate_legacy(TokenStore())
@@ -173,6 +177,11 @@ class AvdApp(Gtk.Application):
         self.view_mode = "all" if self._settings.get("_account_view") == "all" else "account"
         configure(self._settings.get("_language", "system"))
         self._signin_dlg = None      # the open sign-in window, if any
+        self._pending_scheme = None  # (state, cb) awaiting an ms-appx-web redirect
+        self._conn_scheme_waiters = []  # connection-time AAD prompts awaiting a scheme redirect
+        self._toast_box = None        # transient bottom-centre notice (see _toast)
+        self._toast_label = None
+        self._toast_source = 0        # timeout that auto-hides the toast
         self._connecting = set()      # (account id, resource id) currently connecting
         self._tray = None             # TrayIcon, unless AVD_TRAY=0 or no session bus
         self._sessions = {}           # (account id, resource id) → connection state
@@ -189,6 +198,91 @@ class AvdApp(Gtk.Application):
             self._changing_language = False
 
     # ---- app lifecycle ----------------------------------------------------
+    def do_open(self, files, n_files, hint):
+        """Handle a launch that carries a URI. The only URIs we register for are
+        the ms-appx-web:// sign-in redirect (x-scheme-handler/ms-appx-web): the
+        browser is handed the final ?code=… URL by Entra, the OS routes it to
+        this already-running instance, and we deliver it to the waiting browser
+        sign-in. Anything else just surfaces the app."""
+        delivered = False
+        for f in files:
+            try:
+                uri = f.get_uri()
+            except Exception:
+                uri = None
+            if uri and uri.split(":", 1)[0].lower() == "ms-appx-web":
+                delivered = (self._deliver_scheme_code(uri)
+                             or self._deliver_scheme_conn(uri) or delivered)
+        if not delivered:
+            self.do_activate()
+
+    def _scheme_connect(self, session):
+        """Whether this session's connection-time AAD should auto-capture via the
+        ms-appx-web scheme handler (no paste) instead of the native-client paste.
+        Default on for the sovereign clouds, where the broker redirect is the one
+        registered redirect (loopback/nativeclient are not) and a Gov tester has
+        confirmed the full no-paste connect. Commercial keeps the native-client
+        paste unless AVD_SCHEME_SIGNIN forces it (for testing the chain there). A
+        local .rdp keeps its own flow (it may carry a baked-in gateway token and
+        has no feed token to inject)."""
+        if session.local:
+            return False
+        force = os.environ.get("AVD_SCHEME_SIGNIN", "").strip().lower() \
+            in ("1", "true", "yes", "on")
+        return force or config.CLOUD != "commercial"
+
+    def _deliver_scheme_conn(self, uri):
+        """Route a caught ms-appx-web connection redirect to the most recent live
+        connection-time AAD prompt. Its ``finish`` writes the URL to FreeRDP's
+        pty, exactly as a manual paste would, so no code races FreeRDP's reader."""
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(uri).query)
+        except Exception:
+            return False
+        if "code" not in qs and "error" not in qs:
+            return False
+        while self._conn_scheme_waiters:
+            waiter = self._conn_scheme_waiters.pop()
+            attempt = waiter.get("attempt")
+            if attempt is not None and not attempt.active():
+                continue   # a cancelled/finished connection — skip to an older one
+            if self.win:
+                self.win.present()
+            self._toast(tr("Signed in. You can close the browser tab that's "
+                           "still loading."))
+            GLib.idle_add(waiter["finish"], uri)
+            return True
+        return False
+
+    def _deliver_scheme_code(self, uri):
+        """Route a caught ms-appx-web://…?code=… back to the pending browser
+        sign-in. Returns True if a waiting sign-in accepted it. The state must
+        match the one we sent, so a stray or foreign redirect is ignored."""
+        pending = self._pending_scheme
+        if not pending:
+            return False
+        want_state, cb = pending
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(uri).query)
+        except Exception:
+            return False
+        if "code" not in qs and "error" not in qs:
+            return False
+        if qs.get("state", [None])[0] != want_state:
+            return False
+        self._pending_scheme = None
+        # The OS routed this redirect to us while the browser was in front, and
+        # the browser tab is now stuck spinning (a custom scheme has no landing
+        # page). Pull our window back to the front and, once the feed is up,
+        # float a notice so the dead tab reads as "done" rather than "broken".
+        if self.win:
+            self.win.present()
+        if "code" in qs:
+            self._toast(tr("Signed in. You can close the browser tab that's "
+                           "still loading."))
+        GLib.idle_add(cb, qs)
+        return True
+
     def do_activate(self):
         if self.win:
             self.win.present()
@@ -731,6 +825,25 @@ class AvdApp(Gtk.Application):
         cbox.set_can_target(True)
         self._connect_overlay = cbox
         overlay.add_overlay(cbox)
+
+        # Transient toast (bottom-centre): a self-dismissing notice that floats
+        # over the feed. Used to tell a browser-scheme sign-in that it landed —
+        # the ms-appx-web redirect leaves the browser tab spinning with no
+        # completion page (the final hop is a custom scheme, not an HTTP URL), so
+        # the app has to be the one that says "you're in, close the tab."
+        toast = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toast.add_css_class("toast")
+        toast.set_halign(Gtk.Align.CENTER); toast.set_valign(Gtk.Align.END)
+        toast.set_margin_bottom(18)
+        self._toast_label = create(Gtk.Label, label="", xalign=0, wrap=True)
+        self._toast_label.add_css_class("toast-label")
+        toast_close = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        toast_close.add_css_class("flat")
+        toast_close.connect("clicked", lambda *_: self._hide_toast())
+        toast.append(self._toast_label); toast.append(toast_close)
+        toast.set_visible(False)
+        self._toast_box = toast
+        overlay.add_overlay(toast)
         wp.append(overlay)
 
         # footer: live dot · status · version
@@ -795,6 +908,25 @@ class AvdApp(Gtk.Application):
                 bind(self.status, 'text', text)
             return False
         GLib.idle_add(apply)
+
+    def _toast(self, text, timeout=10):
+        """Show a self-dismissing notice over the feed. Safe from any thread."""
+        def apply():
+            if not self._toast_box:
+                return False
+            bind(self._toast_label, 'text', text)
+            self._toast_box.set_visible(True)
+            if self._toast_source:
+                GLib.source_remove(self._toast_source)
+            self._toast_source = GLib.timeout_add_seconds(timeout, self._hide_toast)
+            return False
+        GLib.idle_add(apply)
+
+    def _hide_toast(self):
+        self._toast_source = 0
+        if self._toast_box:
+            self._toast_box.set_visible(False)
+        return False
 
     def _update_account(self, who, session=None):
         """Fill the header account chip: email + a 2-letter avatar."""
@@ -1239,6 +1371,7 @@ class AvdApp(Gtk.Application):
 
         def begin_paste(*_):
             shutdown_server()
+            self._pending_scheme = None
             redirect_used[0] = config.REDIRECT
             copy_btn.set_label(tr("Copy sign-in link"))   # link changed; allow re-copy
             spinner.stop()
@@ -1255,6 +1388,17 @@ class AvdApp(Gtk.Application):
                 return
             redirect_used[0] = "http://localhost:%d/" % srv.server_address[1]
             launch(authorize_url(redirect_used[0]))
+
+        def begin_scheme():
+            # Auto-capture without a local web server: authorize with the
+            # ms-appx-web broker redirect (registered on all clouds, including
+            # sovereign where loopback is not), and let the OS x-scheme-handler
+            # hand the ?code=… URL back to this running app (do_open). The paste
+            # link stays as a manual fallback if the handler is not registered.
+            shutdown_server()
+            redirect_used[0] = config.BROKER_REDIRECT
+            self._pending_scheme = (state, on_code_main)
+            launch(authorize_url(config.BROKER_REDIRECT))
 
         open_btn.connect("clicked", lambda *_: launch(authorize_url(
             redirect_used[0] or config.REDIRECT)))
@@ -1286,6 +1430,8 @@ class AvdApp(Gtk.Application):
         def on_closed(*_):
             if self._signin_dlg is dlg:
                 self._signin_dlg = None
+            if self._pending_scheme and self._pending_scheme[0] == state:
+                self._pending_scheme = None
             shutdown_server()
             if not done[0]:
                 session.pending_launch = None
@@ -1297,13 +1443,16 @@ class AvdApp(Gtk.Application):
         # redirect is registered for the public MS Remote Desktop client. On
         # sovereign clouds it is NOT — every Gov tester hits AADSTS50011
         # "redirect URI 'http://localhost:…' does not match" after a successful
-        # CAC sign-in. Go straight to the nativeclient paste there (that .com
-        # redirect IS registered — see config.REDIRECT). Commercial keeps the
-        # nicer no-paste loopback flow.
-        if config.CLOUD == "commercial":
+        # CAC sign-in. There the ms-appx-web broker redirect IS registered and is
+        # auto-captured by the OS scheme handler (begin_scheme), so Gov gets the
+        # same no-paste flow; the paste link stays as a fallback. Commercial keeps
+        # the loopback flow, which needs no external-protocol prompt.
+        force_scheme = os.environ.get("AVD_SCHEME_SIGNIN", "").strip().lower() \
+            in ("1", "true", "yes", "on")
+        if config.CLOUD == "commercial" and not force_scheme:
             begin_loopback()
         else:
-            begin_paste()
+            begin_scheme()
         dlg.present()
 
     def _browser_complete(self, session, dlg, verifier, redirect_uri, qs,
@@ -1319,6 +1468,7 @@ class AvdApp(Gtk.Application):
         else:
             message = None
         done[0] = True
+        self._pending_scheme = None
         shutdown_server()
         if self._signin_dlg is dlg:
             self._signin_dlg = None
@@ -2015,12 +2165,25 @@ class AvdApp(Gtk.Application):
         logpath = session_log_path(
             session.client.output_dir,
             f"session_{safe}_{hashlib.sha256(res['id'].encode()).hexdigest()[:16]}")
-        argv = [config.SDL, path, f"/gateway:{config.gateway_arg()}",
+        scheme_conn = self._scheme_connect(session)
+        gw = config.gateway_arg()
+        if scheme_conn and session.token:
+            # Hand FreeRDP the AVD access token we already hold (same audience as
+            # the feed scope) so it skips the ARM gateway's own "Browse to:"
+            # prompt — arm.c only prompts when GatewayHttpExtAuthBearer is unset.
+            # NOTE: this puts the token on the child's argv, so it is visible to
+            # `ps` for this user; it is the user's own short-lived token on their
+            # own machine, and never printed to our logs.
+            gw = gw + ",bearer:" + session.token
+        argv = [config.SDL, path, f"/gateway:{gw}",
                 "/sec:nla" if nla else "/sec:aad"]
         # Sovereign clouds point FreeRDP's connection-time AAD at their own Entra
-        # via /azure (commercial needs nothing — azure_arg() is empty there).
-        if config.azure_arg():
-            argv.append(f"/azure:{config.azure_arg()}")
+        # via /azure; scheme_conn additionally swaps the redirect to ms-appx-web
+        # so the prompt auto-captures (commercial default stays empty — the
+        # seamless SSO webview — unless scheme_conn forces the browser path).
+        az = config.azure_arg(scheme=scheme_conn)
+        if az:
+            argv.append(f"/azure:{az}")
         if session.client.upn:
             argv.append(f"/u:{session.client.upn}")
         # RemoteApp (RAIL) tiles: the bundled SDL client can't render RAIL windows,
@@ -2237,8 +2400,11 @@ class AvdApp(Gtk.Application):
                 # WebView has no smart-card reader, so the feed route's
                 # connection-time prompt failed cert validation there too. Route
                 # those through the system browser as well (issue #61).
-                # Commercial keeps the seamless SSO-cookie WebView (no paste).
-                use_browser = session.local or config.CLOUD != "commercial"
+                # Commercial keeps the seamless SSO-cookie WebView (no paste),
+                # unless scheme-capture is forced on (then the browser path runs
+                # so the ms-appx-web redirect can be auto-captured).
+                use_browser = (session.local or config.CLOUD != "commercial"
+                               or self._scheme_connect(session))
                 resolver = self._resolve_aad_browser if use_browser else self._resolve_aad
                 GLib.idle_add(resolver, master, url, res, session, attempt)
             else:
@@ -2428,7 +2594,12 @@ class AvdApp(Gtk.Application):
         certificate can be presented (the WebView can't — issue #17). FreeRDP
         stays blocked on stdin while the user signs in and pastes the final
         address back, so there is no race against FreeRDP's own redirect
-        handler. The pasted redirect URL is written straight to the pty."""
+        handler. The pasted redirect URL is written straight to the pty.
+
+        When scheme-capture is on, FreeRDP's redirect is the ms-appx-web broker
+        URL, so the browser hands the code back to the app (do_open ->
+        _deliver_scheme_conn -> this prompt's ``finish``) with no paste; the
+        paste field stays visible as a fallback."""
         if session.removed or (attempt is not None and not attempt.active()):
             if attempt is not None and not attempt.cancelled.is_set():
                 attempt.cancel()
@@ -2438,6 +2609,8 @@ class AvdApp(Gtk.Application):
                 except OSError:
                     pass
             return False
+        scheme = self._scheme_connect(session)
+        waiter_box = [None]
         done = [False]
 
         def launch(target):
@@ -2458,6 +2631,11 @@ class AvdApp(Gtk.Application):
         heading.add_css_class("hero-title")
         intro = create(Gtk.Label, xalign=0, wrap=True,
             label=tr("Your browser will open so you can sign in with your smart "
+                     "card or certificate. When it asks to open the app, allow "
+                     "it and the connection continues on its own — or paste the "
+                     "final address below. Take your time, the connection waits.")
+                  if scheme else
+                  tr("Your browser will open so you can sign in with your smart "
                      "card or certificate. Then copy the final address from the "
                      "browser's address bar and paste it below. Take your time — "
                      "the connection waits for you."))
@@ -2481,6 +2659,11 @@ class AvdApp(Gtk.Application):
             if done[0]:
                 return
             done[0] = True
+            if waiter_box[0] is not None:
+                try:
+                    self._conn_scheme_waiters.remove(waiter_box[0])
+                except ValueError:
+                    pass
             if attempt is not None and attempt.close_auth is close_auth:
                 attempt.close_auth = None
             if redirect_uri and not session.removed and (attempt is None or attempt.active()):
@@ -2519,6 +2702,10 @@ class AvdApp(Gtk.Application):
         win.connect("close-request", close_auth)
         if attempt is not None:
             attempt.close_auth = close_auth
+        if scheme:
+            # Let do_open deliver the caught ms-appx-web redirect to this prompt.
+            waiter_box[0] = {"finish": finish, "attempt": attempt}
+            self._conn_scheme_waiters.append(waiter_box[0])
         launch(url)                 # open immediately, like the manual flow
         win.present()
         return False
@@ -3019,4 +3206,7 @@ class AvdApp(Gtk.Application):
 
 if __name__ == "__main__":
     app = AvdApp()
-    sys.exit(app.run(None))
+    # Pass argv so a launch carrying the ms-appx-web://…?code=… sign-in redirect
+    # reaches GApplication (HANDLES_OPEN → do_open); a no-URI launch still just
+    # activates. The wrapper forwards "$@", so sys.argv holds the URI here.
+    sys.exit(app.run(sys.argv))

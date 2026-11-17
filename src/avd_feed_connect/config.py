@@ -67,6 +67,15 @@ LOGIN = f"https://{_C['authority']}/{TENANT}/oauth2/v2.0"
 # azure_arg(), which hardcodes the same .com redirect for the connection-time
 # token, and matches the single callback the MS RDP app actually registers.
 REDIRECT = f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient"
+# The ms-appx-web broker redirect registered for the same public client. Unlike
+# the loopback (http://localhost) and nativeclient redirects, this one is
+# registered on ALL clouds including sovereign, so it is the one redirect that
+# both lets Entra return a code AND can be auto-captured on Gov without the
+# copy/paste of the final URL: the app registers an OS x-scheme-handler for
+# ms-appx-web and the browser hands the ?code=… URL straight back. Verified on
+# commercial (returns a code; Gov pending a tester). NOTE: the OS lowercases the
+# host to "microsoft.aad.brokerplugin", so any comparison must be case-insensitive.
+BROKER_REDIRECT = f"ms-appx-web://Microsoft.AAD.BrokerPlugin/{CLIENT_ID}"
 # The feed service rejects unknown clients ("INCOMPATIBLE_CLIENT_VERSION /
 # Client did not send any User Agent approved header"); this is exactly the
 # X-MS-User-Agent the web client sends (clientType/clientVersion sdkType/sdk).
@@ -84,33 +93,51 @@ def gateway_arg():
     return "type:arm"
 
 
-def azure_arg():
-    """The value for FreeRDP's ``/azure:`` sub-options, or ``""`` on the
-    commercial cloud (FreeRDP's defaults already target commercial Entra, so no
-    /azure is needed there).
-
-    A sovereign cloud overrides the Entra authority (``ad:``) to its own while
-    keeping the public Remote Desktop client's registered redirect on the
-    *commercial* host (``avd-access:``) — that exact combination is what
-    actually connects a US Gov AVD with a PIV smartcard from Linux (verified by
-    @cyberpil0t, #17). ``tenantid:common`` matches that working invocation.
+def _avd_access_redirect(scheme):
+    """The ``avd-access:`` redirect, percent-encoded and printf-escaped.
 
     ``avd-access:`` is not a literal URI: FreeRDP uses it as a printf *format*
     string, ``winpr_asprintf(fmt, authority, tenantid)``, and drops the result
-    straight into ``&redirect_uri=`` **unencoded**. So the percent-encoding of
-    the redirect must be written with doubled ``%%`` (printf-literal percents),
-    exactly like FreeRDP's own default ``https%%3A%%2F%%2F%s%%2F%s%%2F…``; a
-    single ``%`` makes printf read ``%3A``/``%2F`` as bogus conversions and
-    corrupts the URI, which Entra then rejects with AADSTS90102 ('redirect_uri'
-    value must be a valid absolute URI). We hardcode the commercial host and
-    ``common`` tenant here rather than using ``%s``, so the two format args are
-    ignored."""
-    if CLOUD == "commercial":
-        return ""
-    redirect = urllib.parse.quote(
-        f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient",
-        safe="").replace("%", "%%")
-    return f"ad:{_C['authority']},tenantid:common,avd-access:{redirect}"
+    straight into ``&redirect_uri=`` **unencoded**. So the percent-encoding must
+    be written with doubled ``%%`` (printf-literal percents), exactly like
+    FreeRDP's own default ``https%%3A%%2F%%2F%s%%2F%s%%2F…``; a single ``%``
+    makes printf read ``%3A``/``%2F`` as bogus conversions and corrupts the URI,
+    which Entra rejects with AADSTS90102. Neither value below uses ``%s``, so the
+    two format args are ignored.
+
+    ``scheme=True`` returns the ms-appx-web broker redirect (:data:`BROKER_REDIRECT`)
+    so FreeRDP's connection-time "Browse to:" lands on the OS scheme handler and
+    the app can hand the code back without a paste (the same redirect the feed
+    sign-in uses). ``scheme=False`` returns the commercial native-client redirect
+    that FreeRDP's own paste flow expects."""
+    uri = BROKER_REDIRECT if scheme else \
+        f"https://{CLOUDS['commercial']['authority']}/common/oauth2/nativeclient"
+    return urllib.parse.quote(uri, safe="").replace("%", "%%")
+
+
+def azure_arg(scheme=False):
+    """The value for FreeRDP's ``/azure:`` sub-options, or ``""`` when nothing
+    needs overriding (the commercial cloud with the default native-client
+    redirect, where FreeRDP's defaults already target commercial Entra).
+
+    A sovereign cloud overrides the Entra authority (``ad:``) to its own while
+    keeping the public Remote Desktop client's registered redirect
+    (``avd-access:``) — that combination is what actually connects a US Gov AVD
+    with a PIV smartcard from Linux (verified by @cyberpil0t, #17).
+    ``tenantid:common`` matches that working invocation.
+
+    With ``scheme=True`` the redirect is the ms-appx-web broker redirect, which
+    is registered for the public client on *every* cloud, so this is also set on
+    commercial (returning a non-empty ``/azure:`` there) to route the
+    connection-time prompt through the OS scheme handler for no-paste capture."""
+    redirect = _avd_access_redirect(scheme)
+    parts = []
+    if CLOUD != "commercial":
+        parts += [f"ad:{_C['authority']}", "tenantid:common"]
+    elif not scheme:
+        return ""   # commercial default: FreeRDP's own Entra + native-client
+    parts.append(f"avd-access:{redirect}")
+    return ",".join(parts)
 
 HOME = os.path.expanduser("~")
 

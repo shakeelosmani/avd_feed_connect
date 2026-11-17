@@ -117,6 +117,10 @@ flowboxchild:focus-visible .tile { outline:2px solid @avd_accent; outline-offset
 .connect-label { font-weight:700; font-size:14px; color:@avd_ink; }
 .connect-sub { font-size:12px; color:@avd_muted; }
 
+.toast { background:@avd_surface; border:1px solid @avd_border; border-radius:14px;
+  padding:10px 10px 10px 16px; box-shadow:0 16px 40px -16px alpha(#121C2E,0.5); }
+.toast-label { font-size:13px; color:@avd_ink; }
+
 .bigmark { min-width:66px; min-height:66px; border-radius:19px; color:#ffffff;
   background:linear-gradient(145deg,#2D8BFF,#0E63D6);
   box-shadow:0 12px 30px -10px alpha(#0E7CF4,0.65); }

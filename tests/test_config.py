@@ -1,6 +1,7 @@
 """Only the Entra login host may be loaded for FreeRDP's "Browse to:" prompt."""
 
 import importlib
+import urllib.parse
 
 import pytest
 
@@ -99,6 +100,35 @@ def test_azure_arg_sovereign_authority_with_commercial_redirect(monkeypatch):
     # commercial native-client URI the public client is registered for.
     assert arg.split("avd-access:", 1)[1].replace("%%", "%") == \
         "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+
+
+def test_azure_arg_scheme_uses_broker_redirect(monkeypatch):
+    # scheme=True swaps the connection-time redirect to the ms-appx-web broker
+    # URL (so FreeRDP's "Browse to:" auto-captures) on EVERY cloud, including
+    # commercial — which is empty without it. Still printf-escaped (doubled %%).
+    commercial = _config_for(monkeypatch, "commercial")
+    assert commercial.azure_arg() == ""                      # default unchanged
+    arg = commercial.azure_arg(scheme=True)
+    assert arg.startswith("avd-access:")                     # no ad:/tenantid on commercial
+    enc = arg.split("avd-access:", 1)[1]
+    assert enc.replace("%%", "%") == \
+        urllib.parse.quote(commercial.BROKER_REDIRECT, safe="")
+    # sovereign keeps its ad:/tenantid and swaps the redirect too
+    gov = _config_for(monkeypatch, "usgov")
+    garg = gov.azure_arg(scheme=True)
+    assert "ad:login.microsoftonline.us" in garg and "tenantid:common" in garg
+    assert garg.split("avd-access:", 1)[1].replace("%%", "%") == \
+        urllib.parse.quote(gov.BROKER_REDIRECT, safe="")
+
+
+def test_broker_redirect_is_registered_scheme_for_client(monkeypatch):
+    # The ms-appx-web broker redirect is auto-captured by the OS scheme handler
+    # on every cloud (commercial verified; Gov pending a tester). It must name
+    # the exact public client id, and be cloud-independent (same string on Gov).
+    commercial = _config_for(monkeypatch, "commercial").BROKER_REDIRECT
+    assert commercial == (
+        "ms-appx-web://Microsoft.AAD.BrokerPlugin/" + config.CLIENT_ID)
+    assert _config_for(monkeypatch, "usgov").BROKER_REDIRECT == commercial
 
 
 def test_reset_config_to_commercial(monkeypatch):
