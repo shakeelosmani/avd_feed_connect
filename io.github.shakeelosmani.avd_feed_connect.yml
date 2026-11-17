@@ -244,6 +244,16 @@ modules:
       - type: patch
         paths:
           - patches/freerdp-0001-client-sdl-strip-terminating-null-from-local-text.patch
+          # Multi-monitor: anchor the layout at the top-left monitor so the RDP
+          # primary sits at (0,0) with no negative origins — otherwise the AVD
+          # session host stalls at logon when the OS primary isn't the top-left
+          # screen (the desktop never loads past the Welcome screen).
+          - patches/freerdp-0002-multimon-anchor-topleft-primary.patch
+          # Multi-monitor: place each SDL window on the display its monitor really
+          # belongs to (orig_screen), not the unsorted monitorId index — otherwise
+          # windows land on the wrong monitors (a shorter region on a taller panel
+          # leaves a black band).
+          - patches/freerdp-0003-sdl-window-to-correct-monitor.patch
 
   # ---- Teams call-optimization add-in (freerdp-teams-redir) --------------
   # Unofficial FreeRDP 3 DVC plugin: runs Teams call media on the LOCAL
