@@ -42,6 +42,12 @@ SEC_VALUES = ["auto", "aad", "nla"]
 # resources (see _open_settings); desktops are unaffected.
 REMOTEAPP_LABELS = ["Automatic (app window)", "Full desktop"]
 REMOTEAPP_VALUES = ["auto", "desktop"]
+# Local folder redirected into the remote session (FreeRDP +home-drive / /drive:).
+# Resource settings can inherit Default via "auto".
+SHARE_LABELS = ["Use Default settings", "Off", "Home folder", "Custom folder…"]
+SHARE_VALUES = ["auto", "off", "home", "custom"]
+SHARE_DEFAULT_LABELS = ["Off", "Home folder", "Custom folder…"]
+SHARE_DEFAULT_VALUES = ["off", "home", "custom"]
 # sdl-freerdp's own Right Shift + key shortcuts (D disconnects the session, Enter
 # toggles fullscreen). "auto" leaves FreeRDP's config untouched; "off" passes every
 # key through to the remote desktop.

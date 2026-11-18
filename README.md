@@ -236,9 +236,9 @@ override it, the easiest way is right inside the app.
 
 - **Per workspace:** right-click a workspace tile → set its **Display scale**,
   **Monitors** (single / all / automatic), **Server certificate**, **Session
-  authentication**, **Client shortcuts**, and any **Advanced flags** — plus, on a
-  **RemoteApp** tile only, **Open RemoteApp as**. These are remembered per
-  resource, so a RemoteApp and a full Desktop can differ.
+  authentication**, **Shared folder**, **Client shortcuts**, and any **Advanced
+  flags** — plus, on a **RemoteApp** tile only, **Open RemoteApp as**. These are
+  remembered per resource, so a RemoteApp and a full Desktop can differ.
 - **Defaults for everything:** the **Settings (gear) menu → Default settings…** sets the
   fallback used by any workspace left on "Automatic", plus the account-wide
   **Sign-in browser** identity.
@@ -286,6 +286,15 @@ intact so AVD can broker the host. It applies to that one RemoteApp tile only, i
 > grant desktop access (or a RAIL-capable client).
 
 (Scripting override: `AVD_REMOTEAPP=desktop`.)
+
+**Shared folder (off / home / custom).** Redirects a local directory into the
+remote session so it appears under **This PC** as a `\\tsclient\…` drive —
+works for both **Desktop** and **RemoteApp** tiles. **Home folder** shares your
+Linux home (`+home-drive`); **Custom folder…** picks any path (`/drive:share,…`).
+Off by default. Your host pool / Intune policy can still block drive
+redirection even when the client offers it.
+
+(Scripting override: `AVD_SHARE=home` or `AVD_SHARE=/path/to/folder`.)
 
 **Client shortcuts (Right Shift + key).** The bundled SDL client reserves
 Right Shift + key for its own shortcuts (D disconnects, Enter toggles
@@ -480,6 +489,7 @@ Both methods write the same setting.
 | `AVD_SCALE` | Force the remote scale percentage (`100`, `125`, `150`, `200`, …). Overrides the auto HiDPI detection. |
 | `AVD_MULTIMON` | Force multi-monitor on (`1`/`on`) or off (`0`/`off`). Overrides the auto monitor-count detection. |
 | `AVD_REMOTEAPP` | `desktop` opens **every** RemoteApp tile as the host's full desktop instead of the app window (the per-tile **Open RemoteApp as** setting does the same for one tile). |
+| `AVD_SHARE` | `home` redirects your home folder into the remote session; `off` disables sharing; any other value is treated as a folder path. Overrides the **Shared folder** setting. |
 | `AVD_EXTRA_ARGS` | Extra `sdl-freerdp` flags appended verbatim, e.g. `"/gfx"`, `"/network:auto"`, or your own `/multimon` / `-multimon` (which then wins over the auto choice). |
 | `AVD_SDL_FREERDP` | Path to the `sdl-freerdp` binary (defaults to the bundled one). |
 | `AVD_TRAY` | `0`/`off` disables the tray icon (closing the window then always quits). |

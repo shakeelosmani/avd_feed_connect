@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 
 from .. import config
 from .security import resolve_security
-from .resources import set_rdp_dynamic_resolution, set_rdp_multimon
+from .resources import (set_rdp_dynamic_resolution, set_rdp_multimon,
+                        set_rdp_drivestoredirect)
 
 
 def session_log_path(output_dir, prefix):
@@ -129,6 +130,60 @@ def apply_client_hotkeys(mode, path=None):
     return True
 
 
+def resolve_share_mode(setting=None, share_path=""):
+    """Resolve shared-folder mode from settings / ``AVD_SHARE``.
+
+    Returns ``(mode, path)`` where mode is ``None``/``"off"`` (disabled),
+    ``"home"``, or ``"custom"``. ``AVD_SHARE`` wins: ``off``, ``home``, or a
+    directory path (treated as custom).
+    """
+    env = os.environ.get("AVD_SHARE", "").strip()
+    if env:
+        low = env.lower()
+        if low in ("0", "off", "false", "no"):
+            return None, ""
+        if low in ("1", "on", "true", "yes", "home"):
+            return "home", os.path.expanduser("~")
+        return "custom", os.path.expanduser(env)
+    if setting in (None, "", "auto", "off"):
+        return None, ""
+    if setting == "home":
+        return "home", os.path.expanduser("~")
+    if setting == "custom":
+        path = os.path.expanduser(share_path or "")
+        return ("custom", path) if path else (None, "")
+    return None, ""
+
+
+def drive_redirect_args(rdp_path, mode, share_path="", extra=""):
+    """Return FreeRDP argv flags for a local shared folder, or ``[]``.
+
+    Skips when ``extra`` already contains a ``/drive:``, ``+home-drive``, or
+    ``+drives`` flag. Enables ``drivestoredirect:s:*`` on the .rdp when sharing.
+    """
+    if mode in (None, "", "off"):
+        return []
+    # Don't double-apply if Advanced flags / AVD_EXTRA_ARGS already set a drive.
+    try:
+        tokens = shlex.split(extra or "")
+    except ValueError:
+        tokens = (extra or "").split()
+    for token in tokens:
+        head = token.lstrip("+-/").partition(":")[0].lower()
+        if head in ("drive", "home-drive", "drives"):
+            return []
+    if mode == "home":
+        set_rdp_drivestoredirect(rdp_path, True)
+        return ["+home-drive"]
+    if mode == "custom":
+        path = os.path.expanduser(share_path or "")
+        if not path or not os.path.isdir(path):
+            return []
+        set_rdp_drivestoredirect(rdp_path, True)
+        return [f"/drive:share,{path}"]
+    return []
+
+
 def build_argv(sdl, path, upn):
     """Assemble the sdl-freerdp command line for a full-screen CLI connection."""
     decision = resolve_security(path)
@@ -145,6 +200,8 @@ def build_argv(sdl, path, upn):
         == "ignore" else "/cert:tofu"
     argv += ["/sound:sys:pulse", "/microphone", cert_flag,
              "/f", "/scale-desktop:200", "-multimon", "/log-level:info"]
+    mode, share_path = resolve_share_mode()
+    argv += drive_redirect_args(path, mode, share_path)
     return argv
 
 
