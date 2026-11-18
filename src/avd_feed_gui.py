@@ -3143,14 +3143,21 @@ class AvdApp(Gtk.Application):
 
         def choose_share_folder(*_):
             dialog = Gtk.FileDialog(title=tr("Choose folder to share"))
+            parent = self.win if self.win and self.win.get_visible() else None
+
             def on_selected(dlg, result):
                 try:
                     folder = dlg.select_folder_finish(result)
                 except GLib.Error:
-                    return
+                    return                       # cancelled or dismissed
+                finally:
+                    self._share_dialog = None    # release the kept reference
                 if folder:
                     bind(share_path_entry, 'text', folder.get_path() or "")
-            dialog.select_folder(dlg, None, on_selected)
+            # Keep a reference while the chooser is open, or the Gtk.FileDialog is
+            # garbage-collected before its async callback fires (issue #17).
+            self._share_dialog = dialog
+            dialog.select_folder(parent, None, on_selected)
         share_browse.connect("clicked", choose_share_folder)
 
         # Sign-in browser identity (User-Agent). Lets a tenant that blocks Linux
