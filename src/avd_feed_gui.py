@@ -2129,13 +2129,29 @@ class AvdApp(Gtk.Application):
         child._security_decision = security
         nla = security.mode == "nla"
         env = dict(os.environ)
-        # sdl-freerdp (SDL3) and FreeRDP's own AAD webview are unstable on native
-        # Wayland (#2: "Error 71 dispatching to Wayland display"). Force X11 /
-        # XWayland for the child, which is stable — and drop WAYLAND_DISPLAY so
-        # nothing in the subprocess re-selects Wayland.
-        env["GDK_BACKEND"] = "x11"
-        env["SDL_VIDEODRIVER"] = "x11"
-        env.pop("WAYLAND_DISPLAY", None)
+        # The SDL3 client was historically forced onto X11/XWayland because it
+        # (and FreeRDP's old in-client AAD webview) were unstable on native
+        # Wayland (#2: "Error 71 dispatching to Wayland display"). But under
+        # XWayland the client misreads multi-monitor geometry — SDL sees one
+        # degenerate display — so on a Wayland host the remote desktop is
+        # squished and mirrored across the physical monitors (#66). SDL3's
+        # native Wayland backend reads correct per-output geometry from
+        # wl_output, and the AAD webview that caused #2 is gone (AAD is resolved
+        # in-process now), so prefer Wayland on a Wayland session.
+        #   AVD_SDL_WAYLAND=0/off  → force the old X11/XWayland path (A/B compare)
+        #   AVD_SDL_WAYLAND=1/on   → force the native Wayland backend
+        #   unset                  → auto: Wayland when a Wayland session exists
+        want_wl = os.environ.get("AVD_SDL_WAYLAND", "").strip().lower()
+        on_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+        use_wayland = (want_wl in ("1", "on", "true", "yes")
+                       or (want_wl not in ("0", "off", "false", "no") and on_wayland))
+        if use_wayland:
+            env["GDK_BACKEND"] = "wayland"
+            env["SDL_VIDEODRIVER"] = "wayland"
+        else:
+            env["GDK_BACKEND"] = "x11"
+            env["SDL_VIDEODRIVER"] = "x11"
+            env.pop("WAYLAND_DISPLAY", None)  # nothing re-selects Wayland
         # FreeRDP no longer has its own webview (we resolve AAD in-process), but
         # keep this set for the child in case any bundled component initializes
         # WebKitGTK — the DMABUF/GBM path blanks on some GPUs. Harmless otherwise.
