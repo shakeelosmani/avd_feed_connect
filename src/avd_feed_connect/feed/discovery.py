@@ -75,6 +75,10 @@ class FeedClient:
                 resources.append({
                     "tenant": feed.get("TenantDisplayName", ""),
                     "tenant_id": feed.get("TenantId", ""),
+                    # ARM feeddiscovery puts the AVD workspace on TenantFeedURL
+                    # (WorkspaceName); TenantDisplayName is the same value today
+                    # but is also used as a Cloud PC / host-pool label.
+                    "workspace": feed.get("WorkspaceName") or feed.get("TenantDisplayName", ""),
                     "publisher": pubname,
                     "id": res.attrib.get("ID", ""),
                     "title": res.attrib.get("Title", "?"),
@@ -94,5 +98,5 @@ def print_list(resources):
     print(f"\n{len(resources)} resource(s):\n")
     for i, r in enumerate(resources):
         print(f"  [{i}] {r['title']:<{w}}  {r['type']:<10} "
-              f"{r['tenant'] or r['publisher']}")
+              f"{r.get('workspace') or r['tenant'] or r['publisher']}")
     print("\nconnect with:  avd-feed.py connect <N>")
